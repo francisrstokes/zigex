@@ -16,18 +16,18 @@ const ASTNodeType = enum { regex, literal, digit, wildcard, alternation, zero_or
 pub const ASTNode = union(ASTNodeType) {
     const Self = @This();
 
+    const Group = struct { nodes: std.ArrayList(ASTNode), index: usize };
+    const Alternation = struct { left: *ASTNode, right: *ASTNode };
+
     regex: std.ArrayList(ASTNode),
     literal: u8,
     digit: u8,
     wildcard: u8,
-    alternation: struct {
-        left: *ASTNode,
-        right: *ASTNode,
-    },
+    alternation: Alternation,
     zero_or_one: *ASTNode,
     zero_or_more: *ASTNode,
     one_or_more: *ASTNode,
-    group: std.ArrayList(ASTNode),
+    group: Group,
     end_of_input: u8,
 
     pub fn deinit(self: *Self) void {
@@ -119,10 +119,10 @@ pub const ASTNode = union(ASTNodeType) {
             },
             ASTNodeType.group => {
                 try indent_str(indent, str, str_offset);
-                _ = try buf_print_at_offset(str[str_offset.*..], str_offset, "group: {{\n", .{});
+                _ = try buf_print_at_offset(str[str_offset.*..], str_offset, "group({d}): {{\n", .{self.group.index});
                 var i: usize = 0;
-                while (i < self.group.items.len) : (i += 1) {
-                    try print(&self.group.items[i], indent + 2, str, str_offset);
+                while (i < self.group.nodes.items.len) : (i += 1) {
+                    try print(&self.group.nodes.items[i], indent + 2, str, str_offset);
                 }
                 try indent_str(indent, str, str_offset);
                 _ = try buf_print_at_offset(str[str_offset.*..], str_offset, "}}\n", .{});
@@ -175,7 +175,7 @@ pub const RegexAST = struct {
 pub const Regex = struct {
     const Self = @This();
 
-    const ParseState = struct { nodes: std.ArrayList(ASTNode), in_alternation: bool = false };
+    const ParseState = struct { nodes: std.ArrayList(ASTNode), in_alternation: bool = false, group_index: usize = 0 };
     const RegexError = error{ParseError};
 
     const RegexConfig = struct {
@@ -187,14 +187,10 @@ pub const Regex = struct {
     allocator: Allocator,
     config: RegexConfig,
     blocks: std.ArrayList(vm.Block),
+    group_index: usize,
 
     pub fn init(allocator: Allocator, re: []const u8, config: RegexConfig) !Self {
-        var regex = Regex{
-            .re = re,
-            .allocator = allocator,
-            .config = config,
-            .blocks = std.ArrayList(vm.Block).init(allocator),
-        };
+        var regex = Regex{ .re = re, .allocator = allocator, .config = config, .blocks = std.ArrayList(vm.Block).init(allocator), .group_index = 0 };
 
         var arena = std.heap.ArenaAllocator.init(allocator);
         var arena_allocator = arena.allocator();
@@ -255,7 +251,6 @@ pub const Regex = struct {
     }
 
     pub fn parse(self: *Self, allocator: Allocator, tokens: std.ArrayList(Token)) !RegexAST {
-        _ = self;
         // We need a home for nodes that are pointed to by other nodes. When we come to deinit the
         // AST, we can walk the AST itself and deinit all the ArrayLists we find along the way, and
         // then free the ophan_nodes ArrayList.
@@ -345,10 +340,11 @@ pub const Regex = struct {
                 },
                 .lparen => {
                     try state_stack.append(current_state);
-                    current_state = .{ .nodes = std.ArrayList(ASTNode).init(allocator) };
+                    current_state = .{ .nodes = std.ArrayList(ASTNode).init(allocator), .group_index = self.group_index };
+                    self.group_index += 1;
                 },
                 .rparen => {
-                    var node = ASTNode{ .group = current_state.nodes };
+                    var node = ASTNode{ .group = .{ .index = current_state.group_index, .nodes = current_state.nodes } };
                     current_state = state_stack.pop();
                     try current_state.nodes.append(node);
                 },
@@ -431,12 +427,12 @@ pub const Regex = struct {
                 var next_block_index = self.blocks.items.len - 1;
 
                 // Start of capture
-                try self.blocks.items[current_block_index].append(.{ .start_capture = 0 });
+                try self.blocks.items[current_block_index].append(.{ .start_capture = node.group.index });
                 try self.blocks.items[current_block_index].append(.{ .jump = content_block_index });
 
                 // Actual content
                 var block_index: usize = content_block_index;
-                for (node.group.items) |child| {
+                for (node.group.nodes.items) |child| {
                     block_index = try self.compile_node(child, block_index);
                 }
 
@@ -444,7 +440,7 @@ pub const Regex = struct {
                 try self.blocks.items[block_index].append(.{ .jump = end_of_capture_block_index });
 
                 // End of capture
-                try self.blocks.items[end_of_capture_block_index].append(.{ .end_capture = 0 });
+                try self.blocks.items[end_of_capture_block_index].append(.{ .end_capture = node.group.index });
                 try self.blocks.items[end_of_capture_block_index].append(.{ .jump = next_block_index });
 
                 return next_block_index;

@@ -41,10 +41,8 @@ pub fn main() !void {
 
         std.debug.print("Match: {s}\n", .{input[0..re_state.state.index]});
 
-        var i: usize = 1;
-        for (re_state.state.captures.items) |capture| {
-            std.debug.print("Group {d}: {s}\n", .{ i, capture });
-            i += 1;
+        for (0..re.group_index) |group_index| {
+            std.debug.print("Group {d}: {s}\n", .{ group_index, re_state.state.captures.get(group_index).? });
         }
     }
 }
@@ -66,10 +64,10 @@ fn test_fully_matching_string(comptime re_str: []const u8, comptime input: []con
     try expect(match);
     try expect(std.mem.eql(u8, re_state.get_match(), input));
 
-    try expect(re_state.state.captures.items.len == captures.len);
+    try expect(re_state.state.captures.count() == captures.len);
     var i: usize = 0;
     while (i < captures.len) : (i += 1) {
-        try expect(std.mem.eql(u8, captures[i], re_state.state.captures.items[i]));
+        try expect(std.mem.eql(u8, captures[i], re_state.state.captures.get(i).?));
     }
 }
 
@@ -100,6 +98,9 @@ test ".+b|\\d" {
 }
 
 test "((.).)" {
-    // FIXME: This test is wrong because the captures are in the wrong order.
-    try test_fully_matching_string("((.).)", "ab", &.{ "a", "ab" });
+    try test_fully_matching_string("((.).)", "ab", &.{ "ab", "a" });
+}
+
+test "((...)(...)+)" {
+    try test_fully_matching_string("((...)(...)+)", "abcdef123", &.{ "abcdef123", "abc", "123" });
 }

@@ -10,8 +10,8 @@ const Op = union(OpType) {
     wildcard: u8,
 
     // Capture based
-    start_capture: u8,
-    end_capture: u8,
+    start_capture: usize,
+    end_capture: usize,
 
     // Flow based
     jump: usize,
@@ -26,8 +26,8 @@ const Op = union(OpType) {
             OpType.wildcard => std.debug.print("B{d}.{d}: wildcard        \"{s}\"\n", .{ block_index, pc, match }),
             OpType.split => std.debug.print("B{d}.{d}: split({d}, {d})     \"{s}\"\n", .{ block_index, pc, self.split.a, self.split.b, match }),
             OpType.jump => std.debug.print("B{d}.{d}: jump({d})         \"{s}\"\n", .{ block_index, pc, self.jump, match }),
-            OpType.start_capture => std.debug.print("B{d}.{d}: start_capture   \"{s}\"\n", .{ block_index, pc, match }),
-            OpType.end_capture => std.debug.print("B{d}.{d}: end_capture     \"{s}\"\n", .{ block_index, pc, match }),
+            OpType.start_capture => std.debug.print("B{d}.{d}: start_capture({d}) \"{s}\"\n", .{ block_index, pc, self.start_capture, match }),
+            OpType.end_capture => std.debug.print("B{d}.{d}: end_capture({d})  \"{s}\"\n", .{ block_index, pc, self.end_capture, match }),
             OpType.end => std.debug.print("B{d}.{d}: end             \"{s}\"\n", .{ block_index, pc, match }),
             OpType.end_of_input => std.debug.print("B{d}.{d}: end_of_input    \"{s}\"\n", .{ block_index, pc, match }),
         }
@@ -51,8 +51,8 @@ pub fn print_block(block: Block, index: usize) void {
             OpType.jump => std.debug.print("  jump({d})\n", .{instruction.jump}),
             OpType.end => std.debug.print("  end\n", .{}),
             OpType.end_of_input => std.debug.print("  end_of_input\n", .{}),
-            OpType.start_capture => std.debug.print("  start_capture\n", .{}),
-            OpType.end_capture => std.debug.print("  end_capture\n", .{}),
+            OpType.start_capture => std.debug.print("  start_capture({d})\n", .{instruction.start_capture}),
+            OpType.end_capture => std.debug.print("  end_capture({d})\n", .{instruction.end_capture}),
         }
     }
     std.debug.print("\n", .{});
@@ -66,7 +66,7 @@ const ThreadState = struct {
     index: usize,
     next_split: ?usize,
     capture_stack: std.ArrayList(usize),
-    captures: std.ArrayList([]const u8),
+    captures: std.AutoHashMap(usize, []const u8),
 
     pub fn clone(self: *Self) !ThreadState {
         return .{
@@ -100,7 +100,7 @@ pub const State = struct {
     pub fn init(allocator: Allocator, blocks: *std.ArrayList(Block), input_str: []const u8, config: Config) State {
         return .{
             .blocks = blocks,
-            .state = .{ .block_index = 0, .pc = 0, .index = 0, .next_split = null, .captures = std.ArrayList([]const u8).init(allocator), .capture_stack = std.ArrayList(usize).init(allocator) },
+            .state = .{ .block_index = 0, .pc = 0, .index = 0, .next_split = null, .captures = std.AutoHashMap(usize, []const u8).init(allocator), .capture_stack = std.ArrayList(usize).init(allocator) },
             .stack = std.ArrayList(ThreadState).init(allocator),
             .input_str = input_str,
             .allocator = allocator,
@@ -151,15 +151,11 @@ pub const State = struct {
             self.state.index = self.stack.items[self.stack.items.len - 1].index;
 
             // Copy the parents captures and capture_stack to this state
-            self.state.captures.clearAndFree();
-            for (self.stack.items[self.stack.items.len - 1].captures.items) |x| {
-                try self.state.captures.append(x);
-            }
+            self.state.captures.deinit();
+            self.state.captures = try self.stack.items[self.stack.items.len - 1].captures.clone();
 
-            self.state.capture_stack.clearAndFree();
-            for (self.stack.items[self.stack.items.len - 1].capture_stack.items) |x| {
-                try self.state.capture_stack.append(x);
-            }
+            self.state.capture_stack.deinit();
+            self.state.capture_stack = try self.stack.items[self.stack.items.len - 1].capture_stack.clone();
 
             return true;
         }
@@ -274,7 +270,7 @@ pub const State = struct {
                     .end_capture => {
                         const start = self.state.capture_stack.pop();
                         const end = self.state.index;
-                        try self.state.captures.append(self.input_str[start..end]);
+                        try self.state.captures.put(op.end_capture, self.input_str[start..end]);
                         self.state.pc += 1;
                         continue;
                     },
