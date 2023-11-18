@@ -4,36 +4,14 @@ const expect = std.testing.expect;
 
 const vm = @import("vm.zig");
 
-const TokenType = enum {
-    literal,
-    escaped,
-    wildcard,
-    lparen,
-    rparen,
-    alternation,
-    zero_or_one,
-    zero_or_more,
-    one_or_more,
-    lsquare,
-    rsquare,
-};
+const TokenType = enum { literal, escaped, wildcard, lparen, rparen, alternation, zero_or_one, zero_or_more, one_or_more, lsquare, rsquare, dollar };
 
 const Token = struct {
     tok_type: TokenType,
     value: u8 = 0,
 };
 
-const ASTNodeType = enum {
-    regex,
-    literal,
-    digit,
-    wildcard,
-    alternation,
-    zero_or_one,
-    zero_or_more,
-    one_or_more,
-    group,
-};
+const ASTNodeType = enum { regex, literal, digit, wildcard, alternation, zero_or_one, zero_or_more, one_or_more, group, end_of_input };
 
 pub const ASTNode = union(ASTNodeType) {
     const Self = @This();
@@ -50,12 +28,14 @@ pub const ASTNode = union(ASTNodeType) {
     zero_or_more: *ASTNode,
     one_or_more: *ASTNode,
     group: std.ArrayList(ASTNode),
+    end_of_input: u8,
 
     pub fn deinit(self: *Self) void {
         switch (self.*) {
             ASTNodeType.literal => {},
             ASTNodeType.digit => {},
             ASTNodeType.wildcard => {},
+            ASTNodeType.end_of_input => {},
             ASTNodeType.regex => {
                 var i: usize = 0;
                 while (i < self.regex.items.len) : (i += 1) {
@@ -125,6 +105,10 @@ pub const ASTNode = union(ASTNodeType) {
                 try indent_str(indent, str, str_offset);
                 _ = try buf_print_at_offset(str[str_offset.*..], str_offset, "lit({c})\n", .{self.literal});
             },
+            ASTNodeType.end_of_input => {
+                try indent_str(indent, str, str_offset);
+                _ = try buf_print_at_offset(str[str_offset.*..], str_offset, "end_of_input\n", .{});
+            },
             ASTNodeType.digit => {
                 try indent_str(indent, str, str_offset);
                 _ = try buf_print_at_offset(str[str_offset.*..], str_offset, "digit({c})\n", .{self.digit});
@@ -192,6 +176,7 @@ pub const Regex = struct {
     const Self = @This();
 
     const ParseState = struct { nodes: std.ArrayList(ASTNode), in_alternation: bool = false };
+    const RegexError = error{ParseError};
 
     const EMPTY_BLOCK: usize = 1;
 
@@ -215,6 +200,7 @@ pub const Regex = struct {
                 '*' => try tokens.append(.{ .tok_type = .zero_or_more }),
                 '?' => try tokens.append(.{ .tok_type = .zero_or_one }),
                 '+' => try tokens.append(.{ .tok_type = .one_or_more }),
+                '$' => try tokens.append(.{ .tok_type = .dollar }),
                 '\\' => {
                     if (i + 1 >= self.re.len) {
                         return error.OutOfBounds;
@@ -264,6 +250,15 @@ pub const Regex = struct {
                     } else {
                         try current_state.nodes.append(node);
                     }
+                },
+                .dollar => {
+                    var node = ASTNode{ .end_of_input = 0 };
+
+                    if (current_state.in_alternation) {
+                        return RegexError.ParseError;
+                    }
+
+                    try current_state.nodes.append(node);
                 },
                 .escaped => {
                     var node: ASTNode = undefined;
@@ -406,6 +401,10 @@ pub const Regex = struct {
             },
             ASTNodeType.wildcard => {
                 try current_block.append(.{ .wildcard = node.wildcard });
+                return current_block_index;
+            },
+            ASTNodeType.end_of_input => {
+                try current_block.append(.{ .end_of_input = 0 });
                 return current_block_index;
             },
             ASTNodeType.alternation => {

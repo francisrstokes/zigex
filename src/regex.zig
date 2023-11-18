@@ -20,6 +20,7 @@ pub fn print_block(block: vm.Block, index: usize) void {
             vm.OpType.split => std.debug.print("  split({d}, {d})\n", .{ instruction.split.a, instruction.split.b }),
             vm.OpType.jump => std.debug.print("  jump({d})\n", .{instruction.jump}),
             vm.OpType.end => std.debug.print("  end\n", .{}),
+            vm.OpType.end_of_input => std.debug.print("  end_of_input\n", .{}),
         }
     }
     std.debug.print("\n", .{});

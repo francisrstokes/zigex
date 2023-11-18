@@ -1,7 +1,7 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 
-pub const OpType = enum { char, digit, wildcard, jump, split, end };
+pub const OpType = enum { char, digit, wildcard, jump, split, end, end_of_input };
 
 const Op = union(OpType) {
     // Content based
@@ -13,11 +13,13 @@ const Op = union(OpType) {
     jump: usize,
     split: struct { a: usize, b: usize },
     end: u8,
+    end_of_input: u8,
 };
 
 const Wildcard = Op{ .wildcard = '.' };
 const Digit = Op{ .digit = 'd' };
 const End = Op{ .end = 'e' };
+const EndOfInput = Op{ .end = 'e' };
 
 pub const Block = std.ArrayList(Op);
 const BlockState = struct {
@@ -110,6 +112,17 @@ pub const State = struct {
                                 }
                                 done = true;
                             }
+                        } else {
+                            if (self.unwind()) {
+                                continue;
+                            }
+                            done = true;
+                        }
+                    },
+                    .end_of_input => {
+                        if (self.is_end_of_input()) {
+                            done = true;
+                            return_value = true;
                         } else {
                             if (self.unwind()) {
                                 continue;
