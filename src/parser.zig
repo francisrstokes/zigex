@@ -435,9 +435,9 @@ pub const Regex = struct {
                 try self.blocks.items[current_block_index].append(.{ .jump = content_block_index });
 
                 // Actual content
-                var block_index: usize = current_block_index;
+                var block_index: usize = content_block_index;
                 for (node.group.items) |child| {
-                    block_index = try self.compile_node(child, content_block_index);
+                    block_index = try self.compile_node(child, block_index);
                 }
 
                 // Jump to the end of capture

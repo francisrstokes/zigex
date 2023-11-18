@@ -98,3 +98,8 @@ test "(a|b)?c" {
 test ".+b|\\d" {
     try test_fully_matching_string(".+b|\\d", "aaaaaaa5", &.{});
 }
+
+test "((.).)" {
+    // FIXME: This test is wrong because the captures are in the wrong order.
+    try test_fully_matching_string("((.).)", "ab", &.{ "a", "ab" });
+}
