@@ -178,12 +178,51 @@ pub const Regex = struct {
     const ParseState = struct { nodes: std.ArrayList(ASTNode), in_alternation: bool = false };
     const RegexError = error{ParseError};
 
+    const RegexConfig = struct {
+        dump_ast: bool = false,
+        dump_blocks: bool = false,
+    };
+
     re: []const u8,
     allocator: Allocator,
+    config: RegexConfig,
     blocks: std.ArrayList(vm.Block),
 
-    pub fn tokenise(self: *Self) !std.ArrayList(Token) {
-        var tokens = std.ArrayList(Token).init(self.allocator);
+    pub fn init(allocator: Allocator, re: []const u8, config: RegexConfig) !Self {
+        var regex = Regex{
+            .re = re,
+            .allocator = allocator,
+            .config = config,
+            .blocks = std.ArrayList(vm.Block).init(allocator),
+        };
+
+        var arena = std.heap.ArenaAllocator.init(allocator);
+        var arena_allocator = arena.allocator();
+        defer arena.deinit();
+
+        var tokens = try regex.tokenise(arena_allocator);
+
+        var ast = try regex.parse(arena_allocator, tokens);
+        if (regex.config.dump_ast) {
+            std.debug.print("\n------------- AST -------------\n", .{});
+            try ast.root.pretty_print(arena_allocator, 4 * 4096);
+        }
+
+        try regex.compile(ast.root);
+        if (regex.config.dump_blocks) {
+            var i: usize = 0;
+            std.debug.print("\n---------- VM Blocks ----------\n", .{});
+            for (regex.blocks.items) |block| {
+                vm.print_block(block, i);
+                i += 1;
+            }
+        }
+
+        return regex;
+    }
+
+    pub fn tokenise(self: *Self, allocator: Allocator) !std.ArrayList(Token) {
+        var tokens = std.ArrayList(Token).init(allocator);
 
         var i: usize = 0;
         while (i < self.re.len) : (i += 1) {
@@ -215,14 +254,15 @@ pub const Regex = struct {
         return tokens;
     }
 
-    pub fn parse(self: *Self, tokens: std.ArrayList(Token)) !RegexAST {
+    pub fn parse(self: *Self, allocator: Allocator, tokens: std.ArrayList(Token)) !RegexAST {
+        _ = self;
         // We need a home for nodes that are pointed to by other nodes. When we come to deinit the
         // AST, we can walk the AST itself and deinit all the ArrayLists we find along the way, and
         // then free the ophan_nodes ArrayList.
-        var ophan_nodes = std.ArrayList(ASTNode).init(self.allocator);
+        var ophan_nodes = std.ArrayList(ASTNode).init(allocator);
 
-        var current_state = ParseState{ .nodes = std.ArrayList(ASTNode).init(self.allocator) };
-        var state_stack = std.ArrayList(ParseState).init(self.allocator);
+        var current_state = ParseState{ .nodes = std.ArrayList(ASTNode).init(allocator) };
+        var state_stack = std.ArrayList(ParseState).init(allocator);
         defer state_stack.deinit();
 
         var i: usize = 0;
@@ -305,7 +345,7 @@ pub const Regex = struct {
                 },
                 .lparen => {
                     try state_stack.append(current_state);
-                    current_state = .{ .nodes = std.ArrayList(ASTNode).init(self.allocator) };
+                    current_state = .{ .nodes = std.ArrayList(ASTNode).init(allocator) };
                 },
                 .rparen => {
                     var node = ASTNode{ .group = current_state.nodes };
@@ -525,14 +565,6 @@ pub const Regex = struct {
     pub fn compile(self: *Self, ast: ASTNode) !void {
         try self.blocks.append(vm.Block.init(self.allocator));
         _ = try self.compile_node(ast, 0);
-    }
-
-    pub fn init(allocator: Allocator, re: []const u8) Self {
-        return .{
-            .re = re,
-            .allocator = allocator,
-            .blocks = std.ArrayList(vm.Block).init(allocator),
-        };
     }
 
     pub fn deinit(self: *Self) void {

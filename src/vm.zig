@@ -42,6 +42,30 @@ const End = Op{ .end = 'e' };
 const EndOfInput = Op{ .end = 'e' };
 
 pub const Block = std.ArrayList(Op);
+pub fn print_block(block: Block, index: usize) void {
+    std.debug.print("Block {d}:\n", .{index});
+
+    if (block.items.len == 0) {
+        std.debug.print("  <empty>\n", .{});
+    }
+
+    for (block.items) |instruction| {
+        switch (instruction) {
+            OpType.char => std.debug.print("  char({c})\n", .{instruction.char}),
+            OpType.digit => std.debug.print("  digit\n", .{}),
+            OpType.wildcard => std.debug.print("  wildcard\n", .{}),
+            OpType.split => std.debug.print("  split({d}, {d})\n", .{ instruction.split.a, instruction.split.b }),
+            OpType.jump => std.debug.print("  jump({d})\n", .{instruction.jump}),
+            OpType.jump_and_link => std.debug.print("  jal({d})\n", .{instruction.jump_and_link}),
+            OpType.end => std.debug.print("  end\n", .{}),
+            OpType.end_of_input => std.debug.print("  end_of_input\n", .{}),
+            OpType.start_capture => std.debug.print("  start_capture\n", .{}),
+            OpType.end_capture => std.debug.print("  end_capture\n", .{}),
+        }
+    }
+    std.debug.print("\n", .{});
+}
+
 const ThreadState = struct {
     const Self = @This();
 
