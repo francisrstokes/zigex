@@ -432,7 +432,7 @@ pub const Regex = struct {
 
                 // Start of capture
                 try self.blocks.items[current_block_index].append(.{ .start_capture = 0 });
-                try self.blocks.items[current_block_index].append(.{ .jump_and_link = content_block_index });
+                try self.blocks.items[current_block_index].append(.{ .jump = content_block_index });
 
                 // Actual content
                 var block_index: usize = current_block_index;
@@ -505,7 +505,6 @@ pub const Regex = struct {
                 var next_block_index = self.blocks.items.len - 1;
 
                 try loop_block.append(.{ .split = .{ .a = content_block_index, .b = next_block_index } });
-                try loop_block.append(.{ .jump = next_block_index });
 
                 return next_block_index;
             },
@@ -526,10 +525,10 @@ pub const Regex = struct {
 
                 // The quantification block has the split and a jump to the next block
                 try self.blocks.items[quantification_block_index].append(.{ .split = .{ .a = content_block_index, .b = next_block_index } });
-                try self.blocks.items[quantification_block_index].append(.{ .jump = next_block_index });
 
                 // The content block has the content itself
-                _ = try self.compile_node(content.*, content_block_index);
+                const final_content_index = try self.compile_node(content.*, content_block_index);
+                try self.blocks.items[final_content_index].append(.{ .jump = next_block_index });
 
                 return next_block_index;
             },
@@ -554,7 +553,6 @@ pub const Regex = struct {
 
                 // Quantification block
                 try self.blocks.items[quantification_block_index].append(.{ .split = .{ .a = content_block_index, .b = next_block_index } });
-                try self.blocks.items[quantification_block_index].append(.{ .jump = next_block_index });
 
                 return next_block_index;
             },

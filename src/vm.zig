@@ -1,7 +1,7 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 
-pub const OpType = enum { char, digit, wildcard, jump, jump_and_link, split, end, end_of_input, start_capture, end_capture };
+pub const OpType = enum { char, digit, wildcard, jump, split, end, end_of_input, start_capture, end_capture };
 
 const Op = union(OpType) {
     // Content based
@@ -15,7 +15,6 @@ const Op = union(OpType) {
 
     // Flow based
     jump: usize,
-    jump_and_link: usize,
     split: struct { a: usize, b: usize },
     end: u8,
     end_of_input: u8,
@@ -27,7 +26,6 @@ const Op = union(OpType) {
             OpType.wildcard => std.debug.print("B{d}.{d}: wildcard        \"{s}\"\n", .{ block_index, pc, match }),
             OpType.split => std.debug.print("B{d}.{d}: split({d}, {d})     \"{s}\"\n", .{ block_index, pc, self.split.a, self.split.b, match }),
             OpType.jump => std.debug.print("B{d}.{d}: jump({d})         \"{s}\"\n", .{ block_index, pc, self.jump, match }),
-            OpType.jump_and_link => std.debug.print("B{d}.{d}: jal({d})          \"{s}\"\n", .{ block_index, pc, self.jump_and_link, match }),
             OpType.start_capture => std.debug.print("B{d}.{d}: start_capture   \"{s}\"\n", .{ block_index, pc, match }),
             OpType.end_capture => std.debug.print("B{d}.{d}: end_capture     \"{s}\"\n", .{ block_index, pc, match }),
             OpType.end => std.debug.print("B{d}.{d}: end             \"{s}\"\n", .{ block_index, pc, match }),
@@ -51,7 +49,6 @@ pub fn print_block(block: Block, index: usize) void {
             OpType.wildcard => std.debug.print("  wildcard\n", .{}),
             OpType.split => std.debug.print("  split({d}, {d})\n", .{ instruction.split.a, instruction.split.b }),
             OpType.jump => std.debug.print("  jump({d})\n", .{instruction.jump}),
-            OpType.jump_and_link => std.debug.print("  jal({d})\n", .{instruction.jump_and_link}),
             OpType.end => std.debug.print("  end\n", .{}),
             OpType.end_of_input => std.debug.print("  end_of_input\n", .{}),
             OpType.start_capture => std.debug.print("  start_capture\n", .{}),
@@ -145,7 +142,7 @@ pub const State = struct {
 
         // Was this the "A" path? Then try "B"
         if (self.state.next_split) |split_block| {
-            self.log("Unwinding to split block {d}\n", .{split_block});
+            self.log("  <-- split block {d}\n", .{split_block});
             self.state.block_index = split_block;
             self.state.pc = 0;
             self.state.next_split = null;
@@ -170,35 +167,8 @@ pub const State = struct {
         // Otherwise, unwind the stack
         self.state.deinit();
         self.state = self.stack.pop();
-        self.log("Unwinding to block {d}\n", .{self.state.block_index});
+        self.log("  <-- block {d}\n", .{self.state.block_index});
 
-        return true;
-    }
-
-    fn join(self: *Self) !bool {
-        if (self.stack.items.len == 0) {
-            return false;
-        }
-
-        var current_state = self.state;
-        self.state = self.stack.pop();
-
-        self.state.captures.clearAndFree();
-        for (current_state.captures.items) |x| {
-            try self.state.captures.append(x);
-        }
-
-        self.state.capture_stack.clearAndFree();
-        for (current_state.capture_stack.items) |x| {
-            try self.state.capture_stack.append(x);
-        }
-
-        self.state.index = current_state.index;
-        self.state.next_split = current_state.next_split;
-
-        self.log("Joining to block {d}\n", .{self.state.block_index});
-
-        current_state.deinit();
         return true;
     }
 
@@ -282,14 +252,6 @@ pub const State = struct {
                         self.state.pc = 0;
                         continue;
                     },
-                    .jump_and_link => {
-                        self.state.pc += 1;
-                        try self.stack.append(try self.state.clone());
-
-                        self.state.block_index = op.jump_and_link;
-                        self.state.pc = 0;
-                        continue;
-                    },
                     .split => {
                         self.state.pc += 1;
                         try self.stack.append(try self.state.clone());
@@ -318,9 +280,10 @@ pub const State = struct {
                     },
                 }
             } else {
-                // This is the case that we've reached the end of the block
-                const join_successful = try self.join();
-                done = !join_successful;
+                if (try self.unwind()) {
+                    continue;
+                }
+                done = true;
             }
         }
 

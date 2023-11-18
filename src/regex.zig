@@ -49,7 +49,7 @@ pub fn main() !void {
     }
 }
 
-fn test_fully_matching_string(comptime re_str: []const u8, comptime input: []const u8) !void {
+fn test_fully_matching_string(comptime re_str: []const u8, comptime input: []const u8, captures: []const []const u8) !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     const allocator = gpa.allocator();
     defer {
@@ -65,25 +65,36 @@ fn test_fully_matching_string(comptime re_str: []const u8, comptime input: []con
 
     try expect(match);
     try expect(std.mem.eql(u8, re_state.get_match(), input));
+
+    try expect(re_state.state.captures.items.len == captures.len);
+    var i: usize = 0;
+    while (i < captures.len) : (i += 1) {
+        try expect(std.mem.eql(u8, captures[i], re_state.state.captures.items[i]));
+    }
 }
 
 test "a" {
-    try test_fully_matching_string("a", "a");
+    try test_fully_matching_string("a", "a", &.{});
 }
 
 test "a+" {
-    try test_fully_matching_string("a+", "aaaaaaa");
+    try test_fully_matching_string("a+", "aaaaaaa", &.{});
 }
 
 test ".+b" {
-    try test_fully_matching_string(".+b", "aaaaaaab");
+    try test_fully_matching_string(".+b", "aaaaaaab", &.{});
 }
 
 test "a|b" {
-    try test_fully_matching_string("a|b", "a");
-    try test_fully_matching_string("a|b", "b");
+    try test_fully_matching_string("a|b", "a", &.{});
+    try test_fully_matching_string("a|b", "b", &.{});
+}
+
+test "(a|b)?c" {
+    try test_fully_matching_string("(a|b)?c", "ac", &.{"a"});
+    try test_fully_matching_string("(a|b)?c", "bc", &.{"b"});
 }
 
 test ".+b|\\d" {
-    try test_fully_matching_string(".+b|\\d", "aaaaaaa5");
+    try test_fully_matching_string(".+b|\\d", "aaaaaaa5", &.{});
 }
