@@ -30,7 +30,7 @@ pub fn main() !void {
     var re = try parser.Regex.init(allocator, re_str, .{ .dump_ast = true, .dump_blocks = true });
     defer re.deinit();
 
-    var re_state = vm.State.init(allocator, &re.blocks, input);
+    var re_state = vm.State.init(allocator, &re.blocks, input, .{ .log = true });
     defer re_state.deinit();
     var match = try re_state.run();
 
@@ -49,31 +49,41 @@ pub fn main() !void {
     }
 }
 
-test "a" {
+fn test_fully_matching_string(comptime re_str: []const u8, comptime input: []const u8) !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     const allocator = gpa.allocator();
     defer {
         _ = gpa.deinit();
     }
 
-    const input_str = "a";
-    const regex_str = "a";
-
-    var re = parser.Regex.init(allocator, regex_str);
+    var re = try parser.Regex.init(allocator, re_str, .{});
     defer re.deinit();
 
-    var tokens = try re.tokenise();
-    defer tokens.deinit();
-
-    var AST = try re.parse(tokens);
-    defer AST.deinit();
-
-    try re.compile(AST.root);
-
-    var re_state = vm.State.init(allocator, &re.blocks, input_str);
+    var re_state = vm.State.init(allocator, &re.blocks, input, .{});
     defer re_state.deinit();
-
     var match = try re_state.run();
 
     try expect(match);
+    try expect(std.mem.eql(u8, re_state.get_match(), input));
+}
+
+test "a" {
+    try test_fully_matching_string("a", "a");
+}
+
+test "a+" {
+    try test_fully_matching_string("a+", "aaaaaaa");
+}
+
+test ".+b" {
+    try test_fully_matching_string(".+b", "aaaaaaab");
+}
+
+test "a|b" {
+    try test_fully_matching_string("a|b", "a");
+    try test_fully_matching_string("a|b", "b");
+}
+
+test ".+b|\\d" {
+    try test_fully_matching_string(".+b|\\d", "aaaaaaa5");
 }

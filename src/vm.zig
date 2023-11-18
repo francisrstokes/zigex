@@ -36,11 +36,6 @@ const Op = union(OpType) {
     }
 };
 
-const Wildcard = Op{ .wildcard = '.' };
-const Digit = Op{ .digit = 'd' };
-const End = Op{ .end = 'e' };
-const EndOfInput = Op{ .end = 'e' };
-
 pub const Block = std.ArrayList(Op);
 pub fn print_block(block: Block, index: usize) void {
     std.debug.print("Block {d}:\n", .{index});
@@ -96,19 +91,23 @@ const ThreadState = struct {
 pub const State = struct {
     const Self = @This();
 
+    const Config = struct { log: bool = false };
+
     blocks: *std.ArrayList(Block),
     state: ThreadState,
     stack: std.ArrayList(ThreadState),
     input_str: []const u8,
     allocator: Allocator,
+    config: Config,
 
-    pub fn init(allocator: Allocator, blocks: *std.ArrayList(Block), input_str: []const u8) State {
+    pub fn init(allocator: Allocator, blocks: *std.ArrayList(Block), input_str: []const u8, config: Config) State {
         return .{
             .blocks = blocks,
             .state = .{ .block_index = 0, .pc = 0, .index = 0, .next_split = null, .captures = std.ArrayList([]const u8).init(allocator), .capture_stack = std.ArrayList(usize).init(allocator) },
             .stack = std.ArrayList(ThreadState).init(allocator),
             .input_str = input_str,
             .allocator = allocator,
+            .config = config,
         };
     }
 
@@ -119,6 +118,16 @@ pub const State = struct {
         }
         self.stack.deinit();
         self.state.deinit();
+    }
+
+    fn log(self: *Self, comptime fmt: []const u8, args: anytype) void {
+        if (self.config.log) {
+            std.debug.print(fmt, args);
+        }
+    }
+
+    pub fn get_match(self: *Self) []const u8 {
+        return self.input_str[0..self.state.index];
     }
 
     fn is_end_of_input(self: *Self) bool {
@@ -136,7 +145,7 @@ pub const State = struct {
 
         // Was this the "A" path? Then try "B"
         if (self.state.next_split) |split_block| {
-            std.debug.print("Unwinding to split block {d}\n", .{split_block});
+            self.log("Unwinding to split block {d}\n", .{split_block});
             self.state.block_index = split_block;
             self.state.pc = 0;
             self.state.next_split = null;
@@ -161,7 +170,7 @@ pub const State = struct {
         // Otherwise, unwind the stack
         self.state.deinit();
         self.state = self.stack.pop();
-        std.debug.print("Unwinding to block {d}\n", .{self.state.block_index});
+        self.log("Unwinding to block {d}\n", .{self.state.block_index});
 
         return true;
     }
@@ -187,7 +196,7 @@ pub const State = struct {
         self.state.index = current_state.index;
         self.state.next_split = current_state.next_split;
 
-        std.debug.print("Joining to block {d}\n", .{self.state.block_index});
+        self.log("Joining to block {d}\n", .{self.state.block_index});
 
         current_state.deinit();
         return true;
@@ -201,7 +210,11 @@ pub const State = struct {
             var block = self.blocks.items[self.state.block_index];
             if (self.state.pc < block.items.len) {
                 var op = block.items[self.state.pc];
-                op.print(self.state.block_index, self.state.pc, self.input_str[0..self.state.index]);
+
+                if (self.config.log) {
+                    op.print(self.state.block_index, self.state.pc, self.get_match());
+                }
+
                 switch (op) {
                     .char => {
                         if (!self.is_end_of_input()) {
