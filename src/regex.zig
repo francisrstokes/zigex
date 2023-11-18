@@ -19,8 +19,11 @@ pub fn print_block(block: vm.Block, index: usize) void {
             vm.OpType.wildcard => std.debug.print("  wildcard\n", .{}),
             vm.OpType.split => std.debug.print("  split({d}, {d})\n", .{ instruction.split.a, instruction.split.b }),
             vm.OpType.jump => std.debug.print("  jump({d})\n", .{instruction.jump}),
+            vm.OpType.jump_and_link => std.debug.print("  jal({d})\n", .{instruction.jump_and_link}),
             vm.OpType.end => std.debug.print("  end\n", .{}),
             vm.OpType.end_of_input => std.debug.print("  end_of_input\n", .{}),
+            vm.OpType.start_capture => std.debug.print("  start_capture\n", .{}),
+            vm.OpType.end_capture => std.debug.print("  end_capture\n", .{}),
         }
     }
     std.debug.print("\n", .{});
@@ -45,8 +48,8 @@ pub fn main() !void {
     const re_str = args[1];
     const input = args[2];
 
-    // const re_str = "a?b+.*\\d";
-    // const input = "";
+    // const re_str = "(a|b)?";
+    // const input = "c";
 
     std.debug.print("Regex: {s}\n", .{re_str});
     std.debug.print("Input: \"{s}\"\n", .{input});
@@ -76,6 +79,18 @@ pub fn main() !void {
     var match = try re_state.run();
 
     std.debug.print("input {s} on \"{s}\" -> {any}\n", .{ re_str, input, match });
+
+    if (match) {
+        std.debug.print("\n---------- Captures ----------\n", .{});
+
+        std.debug.print("Match: {s}\n", .{input[0..re_state.state.index]});
+
+        i = 1;
+        for (re_state.state.captures.items) |capture| {
+            std.debug.print("Group {d}: {s}\n", .{ i, capture });
+            i += 1;
+        }
+    }
 }
 
 test "a" {

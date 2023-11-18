@@ -178,8 +178,6 @@ pub const Regex = struct {
     const ParseState = struct { nodes: std.ArrayList(ASTNode), in_alternation: bool = false };
     const RegexError = error{ParseError};
 
-    const EMPTY_BLOCK: usize = 1;
-
     re: []const u8,
     allocator: Allocator,
     blocks: std.ArrayList(vm.Block),
@@ -373,8 +371,6 @@ pub const Regex = struct {
     }
 
     fn compile_node(self: *Self, node: ASTNode, current_block_index: usize) !usize {
-        var current_block: *vm.Block = &self.blocks.items[current_block_index];
-
         switch (node) {
             ASTNodeType.regex => {
                 var block_index: usize = current_block_index;
@@ -385,26 +381,48 @@ pub const Regex = struct {
                 return block_index;
             },
             ASTNodeType.group => {
+                try self.blocks.append(vm.Block.init(self.allocator));
+                var content_block_index = self.blocks.items.len - 1;
+
+                try self.blocks.append(vm.Block.init(self.allocator));
+                var end_of_capture_block_index = self.blocks.items.len - 1;
+
+                try self.blocks.append(vm.Block.init(self.allocator));
+                var next_block_index = self.blocks.items.len - 1;
+
+                // Start of capture
+                try self.blocks.items[current_block_index].append(.{ .start_capture = 0 });
+                try self.blocks.items[current_block_index].append(.{ .jump_and_link = content_block_index });
+
+                // Actual content
                 var block_index: usize = current_block_index;
                 for (node.group.items) |child| {
-                    block_index = try self.compile_node(child, block_index);
+                    block_index = try self.compile_node(child, content_block_index);
                 }
-                return block_index;
+
+                // Jump to the end of capture
+                try self.blocks.items[block_index].append(.{ .jump = end_of_capture_block_index });
+
+                // End of capture
+                try self.blocks.items[end_of_capture_block_index].append(.{ .end_capture = 0 });
+                try self.blocks.items[end_of_capture_block_index].append(.{ .jump = next_block_index });
+
+                return next_block_index;
             },
             ASTNodeType.literal => {
-                try current_block.append(.{ .char = node.literal });
+                try self.blocks.items[current_block_index].append(.{ .char = node.literal });
                 return current_block_index;
             },
             ASTNodeType.digit => {
-                try current_block.append(.{ .digit = node.digit });
+                try self.blocks.items[current_block_index].append(.{ .digit = node.digit });
                 return current_block_index;
             },
             ASTNodeType.wildcard => {
-                try current_block.append(.{ .wildcard = node.wildcard });
+                try self.blocks.items[current_block_index].append(.{ .wildcard = node.wildcard });
                 return current_block_index;
             },
             ASTNodeType.end_of_input => {
-                try current_block.append(.{ .end_of_input = 0 });
+                try self.blocks.items[current_block_index].append(.{ .end_of_input = 0 });
                 return current_block_index;
             },
             ASTNodeType.alternation => {
@@ -423,13 +441,18 @@ pub const Regex = struct {
                 const final_right_index = try self.compile_node(content.right.*, right_index);
                 try self.blocks.items[final_right_index].append(.{ .jump = next_block_index });
 
-                try current_block.append(.{ .split = .{ .a = left_index, .b = right_index } });
+                try self.blocks.items[current_block_index].append(.{ .split = .{ .a = left_index, .b = right_index } });
 
                 return next_block_index;
             },
             ASTNodeType.one_or_more => {
                 var content = node.one_or_more;
-                const new_block_index = try self.compile_node(content.*, current_block_index);
+
+                try self.blocks.append(vm.Block.init(self.allocator));
+                const content_block_index = self.blocks.items.len - 1;
+                const new_block_index = try self.compile_node(content.*, content_block_index);
+
+                try self.blocks.items[current_block_index].append(.{ .jump = content_block_index });
 
                 try self.blocks.append(vm.Block.init(self.allocator));
                 const loop_block_index = self.blocks.items.len - 1;
@@ -441,7 +464,7 @@ pub const Regex = struct {
                 try self.blocks.append(vm.Block.init(self.allocator));
                 var next_block_index = self.blocks.items.len - 1;
 
-                try loop_block.append(.{ .split = .{ .a = current_block_index, .b = EMPTY_BLOCK } });
+                try loop_block.append(.{ .split = .{ .a = content_block_index, .b = next_block_index } });
                 try loop_block.append(.{ .jump = next_block_index });
 
                 return next_block_index;
@@ -449,35 +472,49 @@ pub const Regex = struct {
             ASTNodeType.zero_or_one => {
                 var content = node.zero_or_one;
 
-                // The next "current block"
                 try self.blocks.append(vm.Block.init(self.allocator));
-                var next_block_index = self.blocks.items.len - 1;
+                const quantification_block_index = self.blocks.items.len - 1;
 
-                // The actual content. Needs to come later because we reference the next block.
                 try self.blocks.append(vm.Block.init(self.allocator));
                 const content_block_index = self.blocks.items.len - 1;
-                _ = try self.compile_node(content.*, content_block_index);
 
-                try current_block.*.append(.{ .split = .{ .a = content_block_index, .b = EMPTY_BLOCK } });
-                try current_block.*.append(.{ .jump = next_block_index });
+                try self.blocks.append(vm.Block.init(self.allocator));
+                const next_block_index = self.blocks.items.len - 1;
+
+                // First jump to the quantification block
+                try self.blocks.items[current_block_index].append(.{ .jump = quantification_block_index });
+
+                // The quantification block has the split and a jump to the next block
+                try self.blocks.items[quantification_block_index].append(.{ .split = .{ .a = content_block_index, .b = next_block_index } });
+                try self.blocks.items[quantification_block_index].append(.{ .jump = next_block_index });
+
+                // The content block has the content itself
+                _ = try self.compile_node(content.*, content_block_index);
 
                 return next_block_index;
             },
             ASTNodeType.zero_or_more => {
                 var content = node.zero_or_more;
 
-                // The next "current block"
                 try self.blocks.append(vm.Block.init(self.allocator));
-                var next_block_index = self.blocks.items.len - 1;
+                const quantification_block_index = self.blocks.items.len - 1;
 
-                // The actual content. Needs to come later because we reference the next block.
                 try self.blocks.append(vm.Block.init(self.allocator));
                 const content_block_index = self.blocks.items.len - 1;
-                const new_content_index = try self.compile_node(content.*, content_block_index);
-                try self.blocks.items[new_content_index].append(.{ .jump = current_block_index });
 
-                try self.blocks.items[current_block_index].append(.{ .split = .{ .a = content_block_index, .b = EMPTY_BLOCK } });
-                try self.blocks.items[current_block_index].append(.{ .jump = next_block_index });
+                try self.blocks.append(vm.Block.init(self.allocator));
+                const next_block_index = self.blocks.items.len - 1;
+
+                // Jump to the quantification block
+                try self.blocks.items[current_block_index].append(.{ .jump = quantification_block_index });
+
+                // Content block
+                const new_content_block_index = try self.compile_node(content.*, content_block_index);
+                try self.blocks.items[new_content_block_index].append(.{ .jump = quantification_block_index });
+
+                // Quantification block
+                try self.blocks.items[quantification_block_index].append(.{ .split = .{ .a = content_block_index, .b = next_block_index } });
+                try self.blocks.items[quantification_block_index].append(.{ .jump = next_block_index });
 
                 return next_block_index;
             },
@@ -487,7 +524,6 @@ pub const Regex = struct {
 
     pub fn compile(self: *Self, ast: ASTNode) !void {
         try self.blocks.append(vm.Block.init(self.allocator));
-        try self.blocks.append(vm.Block.init(self.allocator)); // The "empty" block
         _ = try self.compile_node(ast, 0);
     }
 
