@@ -48,11 +48,7 @@ pub fn main() !void {
 }
 
 fn test_fully_matching_string(comptime re_str: []const u8, comptime input: []const u8, captures: []const []const u8) !void {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    const allocator = gpa.allocator();
-    defer {
-        _ = gpa.deinit();
-    }
+    const allocator = std.testing.allocator;
 
     var re = try parser.Regex.init(allocator, re_str, .{});
     defer re.deinit();
