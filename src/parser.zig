@@ -9,6 +9,19 @@ const TokenType = enum { literal, escaped, wildcard, lparen, rparen, alternation
 const Token = struct {
     tok_type: TokenType,
     value: u8 = 0,
+
+    pub fn is_quantifier(self: Token) bool {
+        return (self.tok_type == TokenType.zero_or_one) or (self.tok_type == TokenType.zero_or_more) or (self.tok_type == TokenType.one_or_more);
+    }
+
+    pub fn to_quantifier_node(self: Token, child_index: usize) !ASTNode {
+        switch (self.tok_type) {
+            TokenType.zero_or_one => return ASTNode{ .zero_or_one = child_index },
+            TokenType.zero_or_more => return ASTNode{ .zero_or_more = child_index },
+            TokenType.one_or_more => return ASTNode{ .one_or_more = child_index },
+            else => return error.Unreachable,
+        }
+    }
 };
 
 const ASTNodeType = enum { regex, literal, digit, wildcard, alternation, zero_or_one, zero_or_more, one_or_more, group, end_of_input };
@@ -16,54 +29,54 @@ const ASTNodeType = enum { regex, literal, digit, wildcard, alternation, zero_or
 pub const ASTNode = union(ASTNodeType) {
     const Self = @This();
 
-    const Group = struct { nodes: std.ArrayList(ASTNode), index: usize };
-    const Alternation = struct { left: *ASTNode, right: *ASTNode };
+    const Group = struct { nodes: usize, index: usize };
+    const Alternation = struct { left: usize, right: usize };
 
-    regex: std.ArrayList(ASTNode),
+    regex: usize,
     literal: u8,
     digit: u8,
     wildcard: u8,
     alternation: Alternation,
-    zero_or_one: *ASTNode,
-    zero_or_more: *ASTNode,
-    one_or_more: *ASTNode,
+    zero_or_one: usize,
+    zero_or_more: usize,
+    one_or_more: usize,
     group: Group,
     end_of_input: u8,
 
     pub fn deinit(self: *Self) void {
-        switch (self.*) {
+        switch (self.value) {
             ASTNodeType.literal => {},
             ASTNodeType.digit => {},
             ASTNodeType.wildcard => {},
             ASTNodeType.end_of_input => {},
             ASTNodeType.regex => {
                 var i: usize = 0;
-                while (i < self.regex.items.len) : (i += 1) {
-                    var x = self.regex.items[i];
+                while (i < self.value.regex.items.len) : (i += 1) {
+                    var x = self.value.regex.items[i];
                     x.deinit();
                 }
-                self.regex.deinit();
+                self.value.regex.deinit();
             },
             ASTNodeType.group => {
                 var i: usize = 0;
-                while (i < self.group.items.len) : (i += 1) {
-                    var x = self.group.items[i];
+                while (i < self.value.group.items.len) : (i += 1) {
+                    var x = self.value.group.items[i];
                     x.deinit();
                 }
-                self.group.deinit();
+                self.value.group.deinit();
             },
             ASTNodeType.alternation => {
-                self.alternation.left.deinit();
-                self.alternation.right.deinit();
+                self.value.alternation.left.deinit();
+                self.value.alternation.right.deinit();
             },
             ASTNodeType.zero_or_one => {
-                self.zero_or_one.deinit();
+                self.value.zero_or_one.deinit();
             },
             ASTNodeType.zero_or_more => {
-                self.zero_or_more.deinit();
+                self.value.zero_or_more.deinit();
             },
             ASTNodeType.one_or_more => {
-                self.one_or_more.deinit();
+                self.value.one_or_more.deinit();
             },
         }
     }
@@ -73,88 +86,98 @@ pub const ASTNode = union(ASTNodeType) {
         str_offset.* += slice_written.len;
     }
 
-    fn indent_str(amount: usize, str: []u8, str_offset: *usize) !void {
-        var i: usize = 0;
-        while (i < amount) : (i += 1) {
-            _ = try buf_print_at_offset(str[str_offset.*..], str_offset, " ", .{});
-        }
+    fn indent_str(amount: usize) void {
+        var str: [64]u8 = .{};
+        @memset(&str, ' ');
+        std.debug.print("{s}", .{str[0..amount]});
     }
 
-    pub fn pretty_print(self: *Self, allocator: Allocator, max_buffer_size: usize) !void {
-        var str = try allocator.alloc(u8, max_buffer_size);
-        defer allocator.free(str);
-        @memset(str, 0);
-
-        var str_offset: usize = 0;
-        try self.print(0, str, &str_offset);
-        std.debug.print("{s}\n", .{str});
+    pub fn pretty_print(self: *const Self, ophan_nodes: *std.ArrayList(ASTNode), node_lists: *std.ArrayList(std.ArrayList(ASTNode))) void {
+        self.print(0, ophan_nodes, node_lists);
     }
 
-    fn print(self: *Self, indent: usize, str: []u8, str_offset: *usize) !void {
+    fn print(self: *const Self, indent: usize, orphan_nodes: *std.ArrayList(ASTNode), node_lists: *std.ArrayList(std.ArrayList(ASTNode))) void {
         switch (self.*) {
             ASTNodeType.regex => {
-                _ = try buf_print_at_offset(str[str_offset.*..], str_offset, "regex: {{\n", .{});
-                var i: usize = 0;
-                while (i < self.regex.items.len) : (i += 1) {
-                    try print(&self.regex.items[i], indent + 2, str, str_offset);
+                std.debug.print("regex: {{\n", .{});
+                const nodes = &node_lists.items[self.regex];
+                for (nodes.items) |node| {
+                    print(&node, indent + 2, orphan_nodes, node_lists);
                 }
-                try indent_str(indent, str, str_offset);
-                _ = try buf_print_at_offset(str[str_offset.*..], str_offset, "}}\n", .{});
+                indent_str(indent);
+                std.debug.print("}}\n", .{});
             },
             ASTNodeType.literal => {
-                try indent_str(indent, str, str_offset);
-                _ = try buf_print_at_offset(str[str_offset.*..], str_offset, "lit({c})\n", .{self.literal});
+                indent_str(indent);
+                std.debug.print("lit({c})\n", .{self.literal});
             },
             ASTNodeType.end_of_input => {
-                try indent_str(indent, str, str_offset);
-                _ = try buf_print_at_offset(str[str_offset.*..], str_offset, "end_of_input\n", .{});
+                indent_str(indent);
+                std.debug.print("end_of_input\n", .{});
             },
             ASTNodeType.digit => {
-                try indent_str(indent, str, str_offset);
-                _ = try buf_print_at_offset(str[str_offset.*..], str_offset, "digit({c})\n", .{self.digit});
+                indent_str(indent);
+                std.debug.print("digit({c})\n", .{self.digit});
             },
             ASTNodeType.wildcard => {
-                try indent_str(indent, str, str_offset);
-                _ = try buf_print_at_offset(str[str_offset.*..], str_offset, "wildcard\n", .{});
+                indent_str(indent);
+                std.debug.print("wildcard\n", .{});
             },
             ASTNodeType.group => {
-                try indent_str(indent, str, str_offset);
-                _ = try buf_print_at_offset(str[str_offset.*..], str_offset, "group({d}): {{\n", .{self.group.index});
-                var i: usize = 0;
-                while (i < self.group.nodes.items.len) : (i += 1) {
-                    try print(&self.group.nodes.items[i], indent + 2, str, str_offset);
+                indent_str(indent);
+                std.debug.print("group({d}): {{\n", .{self.group.index});
+                const nodes = &node_lists.items[self.group.nodes];
+                for (nodes.items) |node| {
+                    print(&node, indent + 2, orphan_nodes, node_lists);
                 }
-                try indent_str(indent, str, str_offset);
-                _ = try buf_print_at_offset(str[str_offset.*..], str_offset, "}}\n", .{});
+                indent_str(indent);
+                std.debug.print("}}\n", .{});
             },
             ASTNodeType.alternation => {
-                try indent_str(indent, str, str_offset);
-                _ = try buf_print_at_offset(str[str_offset.*..], str_offset, "alt: {{\n", .{});
-                try print(self.alternation.left, indent + 2, str, str_offset);
-                try print(self.alternation.right, indent + 2, str, str_offset);
-                try indent_str(indent, str, str_offset);
-                _ = try buf_print_at_offset(str[str_offset.*..], str_offset, "}}\n", .{});
+                indent_str(indent);
+                std.debug.print("alt: {{\n", .{});
+
+                indent_str(indent + 2);
+                std.debug.print("left: {{\n", .{});
+                const left_nodes = &node_lists.items[self.alternation.left];
+                for (left_nodes.items) |node| {
+                    print(&node, indent + 4, orphan_nodes, node_lists);
+                }
+                indent_str(indent + 2);
+                std.debug.print("}}\n", .{});
+
+                indent_str(indent + 2);
+                std.debug.print("right: {{\n", .{});
+                const right_nodes = &node_lists.items[self.alternation.right];
+                for (right_nodes.items) |node| {
+                    print(&node, indent + 4, orphan_nodes, node_lists);
+                }
+                indent_str(indent + 2);
+                std.debug.print("}}\n", .{});
+
+                indent_str(indent);
+                std.debug.print("}}\n", .{});
             },
             ASTNodeType.zero_or_one => {
-                try indent_str(indent, str, str_offset);
-                _ = try buf_print_at_offset(str[str_offset.*..], str_offset, "zero_or_one: {{\n", .{});
-                try print(self.zero_or_one, indent + 2, str, str_offset);
-                try indent_str(indent, str, str_offset);
-                _ = try buf_print_at_offset(str[str_offset.*..], str_offset, "}}\n", .{});
+                indent_str(indent);
+                std.debug.print("zero_or_one: {{\n", .{});
+                print(&orphan_nodes.items[self.zero_or_one], indent + 2, orphan_nodes, node_lists);
+                indent_str(indent);
+                std.debug.print("}}\n", .{});
             },
             ASTNodeType.zero_or_more => {
-                try indent_str(indent, str, str_offset);
-                _ = try buf_print_at_offset(str[str_offset.*..], str_offset, "zero_or_more: {{\n", .{});
-                try print(self.zero_or_more, indent + 2, str, str_offset);
-                try indent_str(indent, str, str_offset);
-                _ = try buf_print_at_offset(str[str_offset.*..], str_offset, "}}\n", .{});
+                indent_str(indent);
+                std.debug.print("zero_or_more: {{\n", .{});
+                print(&orphan_nodes.items[self.zero_or_more], indent + 2, orphan_nodes, node_lists);
+                indent_str(indent);
+                std.debug.print("}}\n", .{});
             },
             ASTNodeType.one_or_more => {
-                try indent_str(indent, str, str_offset);
-                _ = try buf_print_at_offset(str[str_offset.*..], str_offset, "one_or_more: {{\n", .{});
-                try print(self.one_or_more, indent + 2, str, str_offset);
-                try indent_str(indent, str, str_offset);
-                _ = try buf_print_at_offset(str[str_offset.*..], str_offset, "}}\n", .{});
+                indent_str(indent);
+                std.debug.print("one_or_more: {{\n", .{});
+                print(&orphan_nodes.items[self.one_or_more], indent + 2, orphan_nodes, node_lists);
+                indent_str(indent);
+                std.debug.print("}}\n", .{});
             },
         }
     }
@@ -164,18 +187,66 @@ pub const RegexAST = struct {
     const Self = @This();
 
     root: ASTNode,
+    node_lists: std.ArrayList(std.ArrayList(ASTNode)),
     ophan_nodes: std.ArrayList(ASTNode),
 
     pub fn deinit(self: *Self) void {
-        self.root.deinit();
+        for (self.node_lists.items) |node_list| {
+            node_list.deinit();
+        }
+        self.node_lists.deinit();
         self.ophan_nodes.deinit();
+    }
+};
+
+const TokenStream = struct {
+    const Self = @This();
+
+    tokens: std.ArrayList(Token),
+    index: usize = 0,
+
+    pub fn init(allocator: Allocator) !Self {
+        return Self{ .tokens = std.ArrayList(Token).init(allocator) };
+    }
+
+    pub fn available(self: *Self) usize {
+        return self.tokens.items.len - self.index;
+    }
+
+    pub fn peek(self: *Self, distance: usize) !Token {
+        if ((self.index + distance) >= self.tokens.items.len) {
+            return error.OutOfBounds;
+        }
+        return self.tokens.items[self.index + distance];
+    }
+
+    pub fn consume(self: *Self) !Token {
+        if (self.index >= self.tokens.items.len) {
+            return error.OutOfBounds;
+        }
+        var token = self.tokens.items[self.index];
+        self.index += 1;
+        return token;
+    }
+
+    pub fn append(self: *Self, token: Token) !void {
+        try self.tokens.append(token);
+    }
+
+    pub fn deinit(self: *Self) void {
+        self.tokens.deinit();
     }
 };
 
 pub const Regex = struct {
     const Self = @This();
 
-    const ParseState = struct { nodes: std.ArrayList(ASTNode), in_alternation: bool = false, group_index: usize = 0 };
+    const ParseState = struct {
+        in_alternation: bool = false,
+        alternation_index: usize = 0,
+        group_index: usize = 0,
+        nodes: usize,
+    };
     const RegexError = error{ParseError};
 
     const RegexConfig = struct {
@@ -198,13 +269,13 @@ pub const Regex = struct {
 
         var tokens = try regex.tokenise(arena_allocator);
 
-        var ast = try regex.parse(arena_allocator, tokens);
+        var ast = try regex.parse(arena_allocator, &tokens);
         if (regex.config.dump_ast) {
             std.debug.print("\n------------- AST -------------\n", .{});
-            try ast.root.pretty_print(arena_allocator, 4 * 4096);
+            ast.root.pretty_print(&ast.ophan_nodes, &ast.node_lists);
         }
 
-        try regex.compile(ast.root);
+        try regex.compile(&ast);
         if (regex.config.dump_blocks) {
             var i: usize = 0;
             std.debug.print("\n---------- VM Blocks ----------\n", .{});
@@ -217,201 +288,200 @@ pub const Regex = struct {
         return regex;
     }
 
-    pub fn tokenise(self: *Self, allocator: Allocator) !std.ArrayList(Token) {
-        var tokens = std.ArrayList(Token).init(allocator);
+    pub fn tokenise(self: *Self, allocator: Allocator) !TokenStream {
+        var token_stream = try TokenStream.init(allocator);
 
         var i: usize = 0;
         while (i < self.re.len) : (i += 1) {
             switch (self.re[i]) {
-                '(' => try tokens.append(.{ .tok_type = .lparen }),
-                ')' => try tokens.append(.{ .tok_type = .rparen }),
-                '[' => try tokens.append(.{ .tok_type = .lsquare }),
-                // '-' => try tokens.append(.{ .tok_type = .dash }),
-                ']' => try tokens.append(.{ .tok_type = .rsquare }),
-                '|' => try tokens.append(.{ .tok_type = .alternation }),
-                '.' => try tokens.append(.{ .tok_type = .wildcard }),
-                '*' => try tokens.append(.{ .tok_type = .zero_or_more }),
-                '?' => try tokens.append(.{ .tok_type = .zero_or_one }),
-                '+' => try tokens.append(.{ .tok_type = .one_or_more }),
-                '$' => try tokens.append(.{ .tok_type = .dollar }),
+                '(' => try token_stream.append(.{ .tok_type = .lparen }),
+                ')' => try token_stream.append(.{ .tok_type = .rparen }),
+                '[' => try token_stream.append(.{ .tok_type = .lsquare }),
+                // '-' => try token_stream.append(.{ .tok_type = .dash }),
+                ']' => try token_stream.append(.{ .tok_type = .rsquare }),
+                '|' => try token_stream.append(.{ .tok_type = .alternation }),
+                '.' => try token_stream.append(.{ .tok_type = .wildcard }),
+                '*' => try token_stream.append(.{ .tok_type = .zero_or_more }),
+                '?' => try token_stream.append(.{ .tok_type = .zero_or_one }),
+                '+' => try token_stream.append(.{ .tok_type = .one_or_more }),
+                '$' => try token_stream.append(.{ .tok_type = .dollar }),
                 '\\' => {
                     if (i + 1 >= self.re.len) {
                         return error.OutOfBounds;
                     }
-                    try tokens.append(.{ .tok_type = .escaped, .value = self.re[i + 1] });
+                    try token_stream.append(.{ .tok_type = .escaped, .value = self.re[i + 1] });
                     i += 1;
                 },
                 else => {
-                    try tokens.append(.{ .tok_type = .literal, .value = self.re[i] });
+                    try token_stream.append(.{ .tok_type = .literal, .value = self.re[i] });
                 },
             }
         }
 
-        return tokens;
+        return token_stream;
     }
 
-    pub fn parse(self: *Self, allocator: Allocator, tokens: std.ArrayList(Token)) !RegexAST {
+    pub fn parse(self: *Self, allocator: Allocator, tokens: *TokenStream) !RegexAST {
         // We need a home for nodes that are pointed to by other nodes. When we come to deinit the
         // AST, we can walk the AST itself and deinit all the ArrayLists we find along the way, and
         // then free the ophan_nodes ArrayList.
         var ophan_nodes = std.ArrayList(ASTNode).init(allocator);
+        var node_lists = std.ArrayList(std.ArrayList(ASTNode)).init(allocator);
 
-        var current_state = ParseState{ .nodes = std.ArrayList(ASTNode).init(allocator) };
+        try node_lists.append(std.ArrayList(ASTNode).init(allocator));
+        var root_node = ASTNode{ .regex = node_lists.items.len - 1 };
+
+        var current_state = ParseState{ .nodes = root_node.regex };
         var state_stack = std.ArrayList(ParseState).init(allocator);
         defer state_stack.deinit();
 
-        var i: usize = 0;
-        while (i < tokens.items.len) : (i += 1) {
-            const token = tokens.items[i];
+        while (tokens.available() > 0) {
+            const token = try tokens.consume();
             switch (token.tok_type) {
                 .literal => {
                     var node = ASTNode{ .literal = token.value };
 
-                    if (current_state.in_alternation) {
-                        var left = current_state.nodes.pop();
+                    // Look ahead for quantifiers
+                    if (tokens.available() > 0) {
+                        const next_token = try tokens.peek(0);
+                        if (next_token.is_quantifier()) {
+                            const quantifier_token = try tokens.consume();
+                            try ophan_nodes.append(node);
+                            var child_index = ophan_nodes.items.len - 1;
 
-                        try ophan_nodes.append(node);
-                        var node_ptr = &ophan_nodes.items[ophan_nodes.items.len - 1];
-
-                        try ophan_nodes.append(left);
-                        var left_ptr = &ophan_nodes.items[ophan_nodes.items.len - 1];
-
-                        var alt_node = ASTNode{ .alternation = .{ .left = left_ptr, .right = node_ptr } };
-                        try current_state.nodes.append(alt_node);
-
-                        current_state.in_alternation = false;
-                    } else {
-                        try current_state.nodes.append(node);
+                            const quantifier_node = try quantifier_token.to_quantifier_node(child_index);
+                            try node_lists.items[current_state.nodes].append(quantifier_node);
+                            continue;
+                        }
                     }
+
+                    try node_lists.items[current_state.nodes].append(node);
+                    continue;
                 },
                 .dollar => {
                     var node = ASTNode{ .end_of_input = 0 };
-
-                    if (current_state.in_alternation) {
-                        return RegexError.ParseError;
-                    }
-
-                    try current_state.nodes.append(node);
+                    try node_lists.items[current_state.nodes].append(node);
+                    continue;
                 },
                 .escaped => {
                     var node: ASTNode = undefined;
                     if (token.value == 'd') {
-                        node = .{ .digit = 0 };
+                        node = ASTNode{ .digit = 0 };
                     } else {
-                        node = .{ .literal = token.value };
+                        node = ASTNode{ .literal = token.value };
                     }
 
-                    if (current_state.in_alternation) {
-                        var left = current_state.nodes.pop();
+                    // Look ahead for quantifiers
+                    if (tokens.available() > 0) {
+                        const next_token = try tokens.peek(0);
+                        if (next_token.is_quantifier()) {
+                            const quantifier_token = try tokens.consume();
+                            try ophan_nodes.append(node);
+                            var child_index = ophan_nodes.items.len - 1;
 
-                        try ophan_nodes.append(node);
-                        var node_ptr = &ophan_nodes.items[ophan_nodes.items.len - 1];
-
-                        try ophan_nodes.append(left);
-                        var left_ptr = &ophan_nodes.items[ophan_nodes.items.len - 1];
-
-                        var alt_node = ASTNode{ .alternation = .{ .left = left_ptr, .right = node_ptr } };
-                        try current_state.nodes.append(alt_node);
-
-                        current_state.in_alternation = false;
-                    } else {
-                        try current_state.nodes.append(node);
+                            const quantifier_node = try quantifier_token.to_quantifier_node(child_index);
+                            try node_lists.items[current_state.nodes].append(quantifier_node);
+                            continue;
+                        }
                     }
+                    try node_lists.items[current_state.nodes].append(node);
+                    continue;
                 },
                 .wildcard => {
                     var node = ASTNode{ .wildcard = 0 };
 
-                    if (current_state.in_alternation) {
-                        var left = current_state.nodes.pop();
+                    // Look ahead for quantifiers
+                    if (tokens.available() > 0) {
+                        const next_token = try tokens.peek(0);
+                        if (next_token.is_quantifier()) {
+                            const quantifier_token = try tokens.consume();
+                            try ophan_nodes.append(node);
+                            var child_index = ophan_nodes.items.len - 1;
 
-                        try ophan_nodes.append(node);
-                        var node_ptr = &ophan_nodes.items[ophan_nodes.items.len - 1];
-
-                        try ophan_nodes.append(left);
-                        var left_ptr = &ophan_nodes.items[ophan_nodes.items.len - 1];
-
-                        var alt_node = ASTNode{ .alternation = .{ .left = left_ptr, .right = node_ptr } };
-                        try current_state.nodes.append(alt_node);
-
-                        current_state.in_alternation = false;
-                    } else {
-                        try current_state.nodes.append(node);
+                            const quantifier_node = try quantifier_token.to_quantifier_node(child_index);
+                            try node_lists.items[current_state.nodes].append(quantifier_node);
+                            continue;
+                        }
                     }
+                    try node_lists.items[current_state.nodes].append(node);
+                    continue;
                 },
                 .lparen => {
                     try state_stack.append(current_state);
-                    current_state = .{ .nodes = std.ArrayList(ASTNode).init(allocator), .group_index = self.group_index };
+
+                    try node_lists.append(std.ArrayList(ASTNode).init(allocator));
+                    const new_nodes_index = node_lists.items.len - 1;
+                    current_state = .{ .nodes = new_nodes_index, .group_index = self.group_index };
                     self.group_index += 1;
+                    continue;
                 },
                 .rparen => {
-                    var node = ASTNode{ .group = .{ .index = current_state.group_index, .nodes = current_state.nodes } };
+                    const copy_index = if (current_state.in_alternation) current_state.alternation_index else current_state.nodes;
+                    try node_lists.append(try node_lists.items[copy_index].clone());
+                    var group_nodes_index = node_lists.items.len - 1;
+
+                    var node = ASTNode{ .group = .{ .index = current_state.group_index, .nodes = group_nodes_index } };
                     current_state = state_stack.pop();
-                    try current_state.nodes.append(node);
+
+                    // Look ahead for quantifiers
+                    if (tokens.available() > 0) {
+                        const next_token = try tokens.peek(0);
+                        if (next_token.is_quantifier()) {
+                            const quantifier_token = try tokens.consume();
+                            try ophan_nodes.append(node);
+                            var child_index = ophan_nodes.items.len - 1;
+
+                            const quantifier_node = try quantifier_token.to_quantifier_node(child_index);
+                            try node_lists.items[current_state.nodes].append(quantifier_node);
+                            continue;
+                        }
+                    }
+
+                    try node_lists.items[current_state.nodes].append(node);
+                    continue;
                 },
                 .alternation => {
+                    // Copy all the existing nodes to what will become the left branch of this alternation.
+                    try node_lists.append(try node_lists.items[current_state.nodes].clone());
+                    var left_nodes_index = node_lists.items.len - 1;
+
+                    // Create an empty list for the right branch of this alternation.
+                    try node_lists.append(std.ArrayList(ASTNode).init(allocator));
+                    var right_nodes_index = node_lists.items.len - 1;
+
+                    // Create the alternation node, free everything that was in the current node list, and add this node
+                    var node = ASTNode{ .alternation = .{ .left = left_nodes_index, .right = right_nodes_index } };
+                    node_lists.items[current_state.nodes].clearAndFree();
+                    try node_lists.items[current_state.nodes].append(node);
+
+                    // Mark that we're in an alternation state.
+                    // If we already happen to be in an alternation state, then we want to keep the alternation_index set
+                    // to the original, since it represents the root of the tree that also covers this alternation.
+                    current_state.alternation_index = if (current_state.in_alternation) current_state.alternation_index else current_state.nodes;
                     current_state.in_alternation = true;
-                },
-                .zero_or_one => {
-                    var prev_node = current_state.nodes.items[current_state.nodes.items.len - 1];
-                    var node = ASTNode{ .zero_or_one = &prev_node };
 
-                    if (@as(ASTNodeType, prev_node) == ASTNodeType.alternation) {
-                        var right = prev_node.alternation.right;
-                        node.zero_or_one = right;
-                        prev_node.alternation.right = &node;
-                    } else {
-                        var prev = current_state.nodes.pop();
-                        try ophan_nodes.append(prev);
-                        node.zero_or_one = &ophan_nodes.items[ophan_nodes.items.len - 1];
-                        try current_state.nodes.append(node);
-                    }
-                },
-                .zero_or_more => {
-                    var prev_node = current_state.nodes.items[current_state.nodes.items.len - 1];
-                    var node = ASTNode{ .zero_or_more = &prev_node };
+                    // Finally set the new current node list to the right branch of the alternation.
+                    current_state.nodes = right_nodes_index;
 
-                    if (@as(ASTNodeType, prev_node) == ASTNodeType.alternation) {
-                        var right = prev_node.alternation.right;
-                        node.zero_or_more = right;
-                        prev_node.alternation.right = &node;
-                    } else {
-                        var prev = current_state.nodes.pop();
-                        try ophan_nodes.append(prev);
-                        node.zero_or_more = &ophan_nodes.items[ophan_nodes.items.len - 1];
-                        try current_state.nodes.append(node);
-                        try ophan_nodes.append(prev);
-                    }
+                    continue;
                 },
-                .one_or_more => {
-                    var prev_node = current_state.nodes.items[current_state.nodes.items.len - 1];
-                    var node = ASTNode{ .one_or_more = &prev_node };
-
-                    if (@as(ASTNodeType, prev_node) == ASTNodeType.alternation) {
-                        var right = prev_node.alternation.right;
-                        node.one_or_more = right;
-                        prev_node.alternation.right = &node;
-                    } else {
-                        var prev = current_state.nodes.pop();
-                        try ophan_nodes.append(prev);
-                        node.one_or_more = &ophan_nodes.items[ophan_nodes.items.len - 1];
-                        try current_state.nodes.append(node);
-                        try ophan_nodes.append(prev);
-                    }
+                .zero_or_more, .zero_or_one, .one_or_more => {
+                    std.debug.print("Unexpected quantifier: {any}\n", .{token});
+                    @panic("unreachable");
                 },
                 else => @panic("unreachable"),
             }
         }
 
-        var root = ASTNode{ .regex = current_state.nodes };
-        return RegexAST{ .root = root, .ophan_nodes = ophan_nodes };
+        return RegexAST{ .root = root_node, .ophan_nodes = ophan_nodes, .node_lists = node_lists };
     }
 
-    fn compile_node(self: *Self, node: ASTNode, current_block_index: usize) !usize {
+    fn compile_node(self: *Self, ast: *RegexAST, node: ASTNode, current_block_index: usize) !usize {
         switch (node) {
             ASTNodeType.regex => {
                 var block_index: usize = current_block_index;
-                for (node.regex.items) |child| {
-                    block_index = try self.compile_node(child, block_index);
+                for (ast.node_lists.items[node.regex].items) |child| {
+                    block_index = try self.compile_node(ast, child, block_index);
                 }
                 try self.blocks.items[block_index].append(.{ .end = 0 });
                 return block_index;
@@ -432,8 +502,8 @@ pub const Regex = struct {
 
                 // Actual content
                 var block_index: usize = content_block_index;
-                for (node.group.nodes.items) |child| {
-                    block_index = try self.compile_node(child, block_index);
+                for (ast.node_lists.items[node.group.nodes].items) |child| {
+                    block_index = try self.compile_node(ast, child, block_index);
                 }
 
                 // Jump to the end of capture
@@ -469,12 +539,18 @@ pub const Regex = struct {
 
                 try self.blocks.append(vm.Block.init(self.allocator));
                 const left_index = self.blocks.items.len - 1;
-                const final_left_index = try self.compile_node(content.left.*, left_index);
+                var final_left_index = left_index;
+                for (ast.node_lists.items[content.left].items) |child| {
+                    final_left_index = try self.compile_node(ast, child, final_left_index);
+                }
                 try self.blocks.items[final_left_index].append(.{ .jump = next_block_index });
 
                 try self.blocks.append(vm.Block.init(self.allocator));
                 const right_index = self.blocks.items.len - 1;
-                const final_right_index = try self.compile_node(content.right.*, right_index);
+                var final_right_index = right_index;
+                for (ast.node_lists.items[content.right].items) |child| {
+                    final_right_index = try self.compile_node(ast, child, final_right_index);
+                }
                 try self.blocks.items[final_right_index].append(.{ .jump = next_block_index });
 
                 try self.blocks.items[current_block_index].append(.{ .split = .{ .a = left_index, .b = right_index } });
@@ -482,11 +558,11 @@ pub const Regex = struct {
                 return next_block_index;
             },
             ASTNodeType.one_or_more => {
-                var content = node.one_or_more;
+                var content = ast.ophan_nodes.items[node.one_or_more];
 
                 try self.blocks.append(vm.Block.init(self.allocator));
                 const content_block_index = self.blocks.items.len - 1;
-                const new_block_index = try self.compile_node(content.*, content_block_index);
+                const new_block_index = try self.compile_node(ast, content, content_block_index);
 
                 try self.blocks.items[current_block_index].append(.{ .jump = content_block_index });
 
@@ -505,7 +581,7 @@ pub const Regex = struct {
                 return next_block_index;
             },
             ASTNodeType.zero_or_one => {
-                var content = node.zero_or_one;
+                var content = ast.ophan_nodes.items[node.zero_or_one];
 
                 try self.blocks.append(vm.Block.init(self.allocator));
                 const quantification_block_index = self.blocks.items.len - 1;
@@ -523,13 +599,13 @@ pub const Regex = struct {
                 try self.blocks.items[quantification_block_index].append(.{ .split = .{ .a = content_block_index, .b = next_block_index } });
 
                 // The content block has the content itself
-                const final_content_index = try self.compile_node(content.*, content_block_index);
+                const final_content_index = try self.compile_node(ast, content, content_block_index);
                 try self.blocks.items[final_content_index].append(.{ .jump = next_block_index });
 
                 return next_block_index;
             },
             ASTNodeType.zero_or_more => {
-                var content = node.zero_or_more;
+                var content = ast.ophan_nodes.items[node.zero_or_more];
 
                 try self.blocks.append(vm.Block.init(self.allocator));
                 const quantification_block_index = self.blocks.items.len - 1;
@@ -544,7 +620,7 @@ pub const Regex = struct {
                 try self.blocks.items[current_block_index].append(.{ .jump = quantification_block_index });
 
                 // Content block
-                const new_content_block_index = try self.compile_node(content.*, content_block_index);
+                const new_content_block_index = try self.compile_node(ast, content, content_block_index);
                 try self.blocks.items[new_content_block_index].append(.{ .jump = quantification_block_index });
 
                 // Quantification block
@@ -556,9 +632,9 @@ pub const Regex = struct {
         }
     }
 
-    pub fn compile(self: *Self, ast: ASTNode) !void {
+    pub fn compile(self: *Self, ast: *RegexAST) !void {
         try self.blocks.append(vm.Block.init(self.allocator));
-        _ = try self.compile_node(ast, 0);
+        _ = try self.compile_node(ast, ast.root, 0);
     }
 
     pub fn deinit(self: *Self) void {

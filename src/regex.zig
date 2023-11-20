@@ -42,7 +42,9 @@ pub fn main() !void {
         std.debug.print("Match: {s}\n", .{input[0..re_state.state.index]});
 
         for (0..re.group_index) |group_index| {
-            std.debug.print("Group {d}: {s}\n", .{ group_index, re_state.state.captures.get(group_index).? });
+            if (re_state.state.captures.get(group_index)) |capture| {
+                std.debug.print("Group {d}: {s}\n", .{ group_index, capture });
+            }
         }
     }
 }
@@ -87,10 +89,16 @@ test "a|b" {
 test "(a|b)?c" {
     try test_fully_matching_string("(a|b)?c", "ac", &.{"a"});
     try test_fully_matching_string("(a|b)?c", "bc", &.{"b"});
+    try test_fully_matching_string("(a|b)?c", "c", &.{});
 }
 
 test ".+b|\\d" {
-    try test_fully_matching_string(".+b|\\d", "aaaaaaa5", &.{});
+    try test_fully_matching_string(".+b|\\d", "aaaaaaab", &.{});
+    try test_fully_matching_string(".+b|\\d", "1", &.{});
+}
+
+test ".+(b|\\d)" {
+    try test_fully_matching_string(".+(b|\\d)", "aaaaaaa5", &.{"5"});
 }
 
 test "((.).)" {
