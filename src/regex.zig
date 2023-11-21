@@ -69,6 +69,19 @@ fn test_fully_matching_string(comptime re_str: []const u8, comptime input: []con
     }
 }
 
+fn test_non_matching_string(comptime re_str: []const u8, comptime input: []const u8) !void {
+    const allocator = std.testing.allocator;
+
+    var re = try parser.Regex.init(allocator, re_str, .{});
+    defer re.deinit();
+
+    var re_state = vm.State.init(allocator, &re.blocks, input, .{});
+    defer re_state.deinit();
+    var match = try re_state.run();
+
+    try expect(!match);
+}
+
 test "a" {
     try test_fully_matching_string("a", "a", &.{});
 }
@@ -107,4 +120,15 @@ test "((.).)" {
 
 test "((...)(...)+)" {
     try test_fully_matching_string("((...)(...)+)", "abcdef123", &.{ "abcdef123", "abc", "123" });
+}
+
+test "[a]" {
+    try test_fully_matching_string("[a]", "a", &.{});
+}
+
+test "[abc]" {
+    try test_fully_matching_string("[abc]", "a", &.{});
+    try test_fully_matching_string("[abc]", "b", &.{});
+    try test_fully_matching_string("[abc]", "c", &.{});
+    try test_non_matching_string("[abc]", "d");
 }

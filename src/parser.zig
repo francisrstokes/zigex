@@ -4,7 +4,7 @@ const expect = std.testing.expect;
 
 const vm = @import("vm.zig");
 
-const TokenType = enum { literal, escaped, wildcard, lparen, rparen, alternation, zero_or_one, zero_or_more, one_or_more, lsquare, rsquare, dollar };
+const TokenType = enum { literal, escaped, wildcard, lparen, rparen, alternation, zero_or_one, zero_or_more, one_or_more, lsquare, rsquare, dollar, caret };
 
 const Token = struct {
     tok_type: TokenType,
@@ -24,17 +24,31 @@ const Token = struct {
     }
 };
 
-const ASTNodeType = enum { regex, literal, digit, wildcard, alternation, zero_or_one, zero_or_more, one_or_more, group, end_of_input };
+const ASTNodeType = enum {
+    regex,
+    literal,
+    digit,
+    wildcard,
+    list,
+    alternation,
+    zero_or_one,
+    zero_or_more,
+    one_or_more,
+    group,
+    end_of_input,
+};
 
 pub const ASTNode = union(ASTNodeType) {
     const Self = @This();
 
     const Group = struct { nodes: usize, index: usize };
     const Alternation = struct { left: usize, right: usize };
+    const List = struct { nodes: usize, negative: bool };
 
     regex: usize,
     literal: u8,
     digit: u8,
+    list: List,
     wildcard: u8,
     alternation: Alternation,
     zero_or_one: usize,
@@ -42,49 +56,6 @@ pub const ASTNode = union(ASTNodeType) {
     one_or_more: usize,
     group: Group,
     end_of_input: u8,
-
-    pub fn deinit(self: *Self) void {
-        switch (self.value) {
-            ASTNodeType.literal => {},
-            ASTNodeType.digit => {},
-            ASTNodeType.wildcard => {},
-            ASTNodeType.end_of_input => {},
-            ASTNodeType.regex => {
-                var i: usize = 0;
-                while (i < self.value.regex.items.len) : (i += 1) {
-                    var x = self.value.regex.items[i];
-                    x.deinit();
-                }
-                self.value.regex.deinit();
-            },
-            ASTNodeType.group => {
-                var i: usize = 0;
-                while (i < self.value.group.items.len) : (i += 1) {
-                    var x = self.value.group.items[i];
-                    x.deinit();
-                }
-                self.value.group.deinit();
-            },
-            ASTNodeType.alternation => {
-                self.value.alternation.left.deinit();
-                self.value.alternation.right.deinit();
-            },
-            ASTNodeType.zero_or_one => {
-                self.value.zero_or_one.deinit();
-            },
-            ASTNodeType.zero_or_more => {
-                self.value.zero_or_more.deinit();
-            },
-            ASTNodeType.one_or_more => {
-                self.value.one_or_more.deinit();
-            },
-        }
-    }
-
-    fn buf_print_at_offset(buf: []u8, str_offset: *usize, comptime fmt: []const u8, args: anytype) std.fmt.BufPrintError!void {
-        var slice_written = try std.fmt.bufPrint(buf[str_offset.*..], fmt, args);
-        str_offset.* += slice_written.len;
-    }
 
     fn indent_str(amount: usize) void {
         var str: [64]u8 = .{};
@@ -127,6 +98,19 @@ pub const ASTNode = union(ASTNodeType) {
                 indent_str(indent);
                 std.debug.print("group({d}): {{\n", .{self.group.index});
                 const nodes = &node_lists.items[self.group.nodes];
+                for (nodes.items) |node| {
+                    print(&node, indent + 2, orphan_nodes, node_lists);
+                }
+                indent_str(indent);
+                std.debug.print("}}\n", .{});
+            },
+            ASTNodeType.list => {
+                indent_str(indent);
+                if (self.list.negative) {
+                    std.debug.print("negative_", .{});
+                }
+                std.debug.print("list: {{\n", .{});
+                const nodes = &node_lists.items[self.list.nodes];
                 for (nodes.items) |node| {
                     print(&node, indent + 2, orphan_nodes, node_lists);
                 }
@@ -241,8 +225,12 @@ const TokenStream = struct {
 pub const Regex = struct {
     const Self = @This();
 
+    const NodeLists = std.ArrayList(std.ArrayList(ASTNode));
+
     const ParseState = struct {
         in_alternation: bool = false,
+        in_list: bool = false,
+        is_negative: bool = false,
         alternation_index: usize = 0,
         group_index: usize = 0,
         nodes: usize,
@@ -294,17 +282,17 @@ pub const Regex = struct {
         var i: usize = 0;
         while (i < self.re.len) : (i += 1) {
             switch (self.re[i]) {
-                '(' => try token_stream.append(.{ .tok_type = .lparen }),
-                ')' => try token_stream.append(.{ .tok_type = .rparen }),
-                '[' => try token_stream.append(.{ .tok_type = .lsquare }),
-                // '-' => try token_stream.append(.{ .tok_type = .dash }),
-                ']' => try token_stream.append(.{ .tok_type = .rsquare }),
-                '|' => try token_stream.append(.{ .tok_type = .alternation }),
-                '.' => try token_stream.append(.{ .tok_type = .wildcard }),
-                '*' => try token_stream.append(.{ .tok_type = .zero_or_more }),
-                '?' => try token_stream.append(.{ .tok_type = .zero_or_one }),
-                '+' => try token_stream.append(.{ .tok_type = .one_or_more }),
-                '$' => try token_stream.append(.{ .tok_type = .dollar }),
+                '(' => try token_stream.append(.{ .tok_type = .lparen, .value = '(' }),
+                ')' => try token_stream.append(.{ .tok_type = .rparen, .value = ')' }),
+                '[' => try token_stream.append(.{ .tok_type = .lsquare, .value = '[' }),
+                ']' => try token_stream.append(.{ .tok_type = .rsquare, .value = ']' }),
+                '|' => try token_stream.append(.{ .tok_type = .alternation, .value = '|' }),
+                '.' => try token_stream.append(.{ .tok_type = .wildcard, .value = '.' }),
+                '*' => try token_stream.append(.{ .tok_type = .zero_or_more, .value = '*' }),
+                '?' => try token_stream.append(.{ .tok_type = .zero_or_one, .value = '?' }),
+                '+' => try token_stream.append(.{ .tok_type = .one_or_more, .value = '+' }),
+                '$' => try token_stream.append(.{ .tok_type = .dollar, .value = '$' }),
+                '^' => try token_stream.append(.{ .tok_type = .caret, .value = '^' }),
                 '\\' => {
                     if (i + 1 >= self.re.len) {
                         return error.OutOfBounds;
@@ -321,12 +309,192 @@ pub const Regex = struct {
         return token_stream;
     }
 
+    fn maybe_parse_and_wrap_quantifier(node: ASTNode, current_state: *ParseState, tokens: *TokenStream, ophan_nodes: *std.ArrayList(ASTNode), node_lists: *NodeLists) !bool {
+        if (tokens.available() > 0) {
+            const next_token = try tokens.peek(0);
+            if (next_token.is_quantifier()) {
+                const quantifier_token = try tokens.consume();
+                try ophan_nodes.append(node);
+                var child_index = ophan_nodes.items.len - 1;
+
+                const quantifier_node = try quantifier_token.to_quantifier_node(child_index);
+                try node_lists.items[current_state.nodes].append(quantifier_node);
+                return true;
+            }
+        }
+        return false;
+    }
+
+    fn parse_node(self: *Self, token: Token, current_state: *ParseState, tokens: *TokenStream, ophan_nodes: *std.ArrayList(ASTNode), node_lists: *NodeLists, state_stack: *std.ArrayList(ParseState)) !void {
+        // Ugly, but saves on passing in another argument.
+        const allocator = ophan_nodes.allocator;
+
+        switch (token.tok_type) {
+            .literal => {
+                var node = ASTNode{ .literal = token.value };
+                if (current_state.in_list or !try maybe_parse_and_wrap_quantifier(node, current_state, tokens, ophan_nodes, node_lists)) {
+                    try node_lists.items[current_state.nodes].append(node);
+                }
+                return;
+            },
+            .dollar => {
+                if (current_state.in_list) {
+                    var node = ASTNode{ .literal = token.value };
+                    try node_lists.items[current_state.nodes].append(node);
+                    return;
+                }
+
+                var node = ASTNode{ .end_of_input = 0 };
+                try node_lists.items[current_state.nodes].append(node);
+                return;
+            },
+            .escaped => {
+                var node: ASTNode = undefined;
+                if (token.value == 'd') {
+                    node = ASTNode{ .digit = 0 };
+                } else {
+                    node = ASTNode{ .literal = token.value };
+                }
+
+                if (current_state.in_list or !try maybe_parse_and_wrap_quantifier(node, current_state, tokens, ophan_nodes, node_lists)) {
+                    try node_lists.items[current_state.nodes].append(node);
+                }
+                return;
+            },
+            .wildcard => {
+                if (current_state.in_list) {
+                    var node = ASTNode{ .literal = token.value };
+                    try node_lists.items[current_state.nodes].append(node);
+                    return;
+                }
+
+                var node = ASTNode{ .wildcard = 0 };
+                if (!try maybe_parse_and_wrap_quantifier(node, current_state, tokens, ophan_nodes, node_lists)) {
+                    try node_lists.items[current_state.nodes].append(node);
+                }
+                return;
+            },
+            .lsquare => {
+                if (current_state.in_list) {
+                    var node = ASTNode{ .literal = token.value };
+                    try node_lists.items[current_state.nodes].append(node);
+                    return;
+                }
+
+                try state_stack.append(current_state.*);
+                var is_negative = false;
+
+                if (tokens.available() > 0) {
+                    const peeked_token = try tokens.peek(0);
+                    if (peeked_token.tok_type == .caret) {
+                        _ = try tokens.consume();
+                        is_negative = true;
+                    }
+                }
+
+                try node_lists.append(std.ArrayList(ASTNode).init(allocator));
+                const new_nodes_index = node_lists.items.len - 1;
+
+                current_state.nodes = new_nodes_index;
+                current_state.in_list = true;
+                current_state.is_negative = is_negative;
+
+                return;
+            },
+            .rsquare => {
+                var node = ASTNode{ .list = .{ .nodes = current_state.nodes, .negative = current_state.is_negative } };
+                current_state.* = state_stack.pop();
+
+                if (!try maybe_parse_and_wrap_quantifier(node, current_state, tokens, ophan_nodes, node_lists)) {
+                    try node_lists.items[current_state.nodes].append(node);
+                }
+                return;
+            },
+            .lparen => {
+                if (current_state.in_list) {
+                    var node = ASTNode{ .literal = token.value };
+                    try node_lists.items[current_state.nodes].append(node);
+                    return;
+                }
+
+                try state_stack.append(current_state.*);
+
+                try node_lists.append(std.ArrayList(ASTNode).init(allocator));
+                const new_nodes_index = node_lists.items.len - 1;
+                current_state.* = .{ .nodes = new_nodes_index, .group_index = self.group_index };
+                self.group_index += 1;
+                return;
+            },
+            .rparen => {
+                if (current_state.in_list) {
+                    var node = ASTNode{ .literal = token.value };
+                    try node_lists.items[current_state.nodes].append(node);
+                    return;
+                }
+
+                const copy_index = if (current_state.in_alternation) current_state.alternation_index else current_state.nodes;
+                try node_lists.append(try node_lists.items[copy_index].clone());
+                var group_nodes_index = node_lists.items.len - 1;
+
+                var node = ASTNode{ .group = .{ .index = current_state.group_index, .nodes = group_nodes_index } };
+                current_state.* = state_stack.pop();
+
+                if (!try maybe_parse_and_wrap_quantifier(node, current_state, tokens, ophan_nodes, node_lists)) {
+                    try node_lists.items[current_state.nodes].append(node);
+                }
+                return;
+            },
+            .alternation => {
+                if (current_state.in_list) {
+                    var node = ASTNode{ .literal = token.value };
+                    try node_lists.items[current_state.nodes].append(node);
+                    return;
+                }
+
+                // Copy all the existing nodes to what will become the left branch of this alternation.
+                try node_lists.append(try node_lists.items[current_state.nodes].clone());
+                var left_nodes_index = node_lists.items.len - 1;
+
+                // Create an empty list for the right branch of this alternation.
+                try node_lists.append(std.ArrayList(ASTNode).init(allocator));
+                var right_nodes_index = node_lists.items.len - 1;
+
+                // Create the alternation node, free everything that was in the current node list, and add this node
+                var node = ASTNode{ .alternation = .{ .left = left_nodes_index, .right = right_nodes_index } };
+                node_lists.items[current_state.nodes].clearAndFree();
+                try node_lists.items[current_state.nodes].append(node);
+
+                // Mark that we're in an alternation state.
+                // If we already happen to be in an alternation state, then we want to keep the alternation_index set
+                // to the original, since it represents the root of the tree that also covers this alternation.
+                current_state.alternation_index = if (current_state.in_alternation) current_state.alternation_index else current_state.nodes;
+                current_state.in_alternation = true;
+
+                // Finally set the new current node list to the right branch of the alternation.
+                current_state.nodes = right_nodes_index;
+
+                return;
+            },
+            .zero_or_more, .zero_or_one, .one_or_more => {
+                if (current_state.in_list) {
+                    var node = ASTNode{ .literal = token.value };
+                    try node_lists.items[current_state.nodes].append(node);
+                    return;
+                }
+
+                std.debug.print("Unexpected quantifier: {any}\n", .{token});
+                @panic("unreachable");
+            },
+            else => @panic("unreachable"),
+        }
+    }
+
     pub fn parse(self: *Self, allocator: Allocator, tokens: *TokenStream) !RegexAST {
         // We need a home for nodes that are pointed to by other nodes. When we come to deinit the
         // AST, we can walk the AST itself and deinit all the ArrayLists we find along the way, and
         // then free the ophan_nodes ArrayList.
         var ophan_nodes = std.ArrayList(ASTNode).init(allocator);
-        var node_lists = std.ArrayList(std.ArrayList(ASTNode)).init(allocator);
+        var node_lists = NodeLists.init(allocator);
 
         try node_lists.append(std.ArrayList(ASTNode).init(allocator));
         var root_node = ASTNode{ .regex = node_lists.items.len - 1 };
@@ -337,140 +505,7 @@ pub const Regex = struct {
 
         while (tokens.available() > 0) {
             const token = try tokens.consume();
-            switch (token.tok_type) {
-                .literal => {
-                    var node = ASTNode{ .literal = token.value };
-
-                    // Look ahead for quantifiers
-                    if (tokens.available() > 0) {
-                        const next_token = try tokens.peek(0);
-                        if (next_token.is_quantifier()) {
-                            const quantifier_token = try tokens.consume();
-                            try ophan_nodes.append(node);
-                            var child_index = ophan_nodes.items.len - 1;
-
-                            const quantifier_node = try quantifier_token.to_quantifier_node(child_index);
-                            try node_lists.items[current_state.nodes].append(quantifier_node);
-                            continue;
-                        }
-                    }
-
-                    try node_lists.items[current_state.nodes].append(node);
-                    continue;
-                },
-                .dollar => {
-                    var node = ASTNode{ .end_of_input = 0 };
-                    try node_lists.items[current_state.nodes].append(node);
-                    continue;
-                },
-                .escaped => {
-                    var node: ASTNode = undefined;
-                    if (token.value == 'd') {
-                        node = ASTNode{ .digit = 0 };
-                    } else {
-                        node = ASTNode{ .literal = token.value };
-                    }
-
-                    // Look ahead for quantifiers
-                    if (tokens.available() > 0) {
-                        const next_token = try tokens.peek(0);
-                        if (next_token.is_quantifier()) {
-                            const quantifier_token = try tokens.consume();
-                            try ophan_nodes.append(node);
-                            var child_index = ophan_nodes.items.len - 1;
-
-                            const quantifier_node = try quantifier_token.to_quantifier_node(child_index);
-                            try node_lists.items[current_state.nodes].append(quantifier_node);
-                            continue;
-                        }
-                    }
-                    try node_lists.items[current_state.nodes].append(node);
-                    continue;
-                },
-                .wildcard => {
-                    var node = ASTNode{ .wildcard = 0 };
-
-                    // Look ahead for quantifiers
-                    if (tokens.available() > 0) {
-                        const next_token = try tokens.peek(0);
-                        if (next_token.is_quantifier()) {
-                            const quantifier_token = try tokens.consume();
-                            try ophan_nodes.append(node);
-                            var child_index = ophan_nodes.items.len - 1;
-
-                            const quantifier_node = try quantifier_token.to_quantifier_node(child_index);
-                            try node_lists.items[current_state.nodes].append(quantifier_node);
-                            continue;
-                        }
-                    }
-                    try node_lists.items[current_state.nodes].append(node);
-                    continue;
-                },
-                .lparen => {
-                    try state_stack.append(current_state);
-
-                    try node_lists.append(std.ArrayList(ASTNode).init(allocator));
-                    const new_nodes_index = node_lists.items.len - 1;
-                    current_state = .{ .nodes = new_nodes_index, .group_index = self.group_index };
-                    self.group_index += 1;
-                    continue;
-                },
-                .rparen => {
-                    const copy_index = if (current_state.in_alternation) current_state.alternation_index else current_state.nodes;
-                    try node_lists.append(try node_lists.items[copy_index].clone());
-                    var group_nodes_index = node_lists.items.len - 1;
-
-                    var node = ASTNode{ .group = .{ .index = current_state.group_index, .nodes = group_nodes_index } };
-                    current_state = state_stack.pop();
-
-                    // Look ahead for quantifiers
-                    if (tokens.available() > 0) {
-                        const next_token = try tokens.peek(0);
-                        if (next_token.is_quantifier()) {
-                            const quantifier_token = try tokens.consume();
-                            try ophan_nodes.append(node);
-                            var child_index = ophan_nodes.items.len - 1;
-
-                            const quantifier_node = try quantifier_token.to_quantifier_node(child_index);
-                            try node_lists.items[current_state.nodes].append(quantifier_node);
-                            continue;
-                        }
-                    }
-
-                    try node_lists.items[current_state.nodes].append(node);
-                    continue;
-                },
-                .alternation => {
-                    // Copy all the existing nodes to what will become the left branch of this alternation.
-                    try node_lists.append(try node_lists.items[current_state.nodes].clone());
-                    var left_nodes_index = node_lists.items.len - 1;
-
-                    // Create an empty list for the right branch of this alternation.
-                    try node_lists.append(std.ArrayList(ASTNode).init(allocator));
-                    var right_nodes_index = node_lists.items.len - 1;
-
-                    // Create the alternation node, free everything that was in the current node list, and add this node
-                    var node = ASTNode{ .alternation = .{ .left = left_nodes_index, .right = right_nodes_index } };
-                    node_lists.items[current_state.nodes].clearAndFree();
-                    try node_lists.items[current_state.nodes].append(node);
-
-                    // Mark that we're in an alternation state.
-                    // If we already happen to be in an alternation state, then we want to keep the alternation_index set
-                    // to the original, since it represents the root of the tree that also covers this alternation.
-                    current_state.alternation_index = if (current_state.in_alternation) current_state.alternation_index else current_state.nodes;
-                    current_state.in_alternation = true;
-
-                    // Finally set the new current node list to the right branch of the alternation.
-                    current_state.nodes = right_nodes_index;
-
-                    continue;
-                },
-                .zero_or_more, .zero_or_one, .one_or_more => {
-                    std.debug.print("Unexpected quantifier: {any}\n", .{token});
-                    @panic("unreachable");
-                },
-                else => @panic("unreachable"),
-            }
+            try self.parse_node(token, &current_state, tokens, &ophan_nodes, &node_lists, &state_stack);
         }
 
         return RegexAST{ .root = root_node, .ophan_nodes = ophan_nodes, .node_lists = node_lists };
@@ -554,6 +589,58 @@ pub const Regex = struct {
                 try self.blocks.items[final_right_index].append(.{ .jump = next_block_index });
 
                 try self.blocks.items[current_block_index].append(.{ .split = .{ .a = left_index, .b = right_index } });
+
+                return next_block_index;
+            },
+            ASTNodeType.list => {
+                var content = node.list;
+
+                if (ast.node_lists.items[content.nodes].items.len == 0) {
+                    @panic("Can't generate blocks for empty list, fix in parser");
+                }
+
+                try self.blocks.append(vm.Block.init(self.allocator));
+                var next_block_index = self.blocks.items.len - 1;
+
+                // Trivial case where we only have a single node in the list.
+                // Generate a block for that node, and add a jump to the next block.
+                if (ast.node_lists.items[content.nodes].items.len == 1) {
+                    var final_block_index = try self.compile_node(ast, ast.node_lists.items[content.nodes].items[0], current_block_index);
+                    try self.blocks.items[final_block_index].append(.{ .jump = next_block_index });
+                    return next_block_index;
+                }
+
+                // In the case that we have N nodes in the list, we need to generate N-1 splits.
+                try self.blocks.append(vm.Block.init(self.allocator));
+                var split_block_index = self.blocks.items.len - 1;
+
+                try self.blocks.items[current_block_index].append(.{ .jump = split_block_index });
+
+                for (0..ast.node_lists.items[content.nodes].items.len - 1) |i| {
+                    // Create a block for the content node, compile it, and add a jump to the next block.
+                    try self.blocks.append(vm.Block.init(self.allocator));
+                    var block_index = self.blocks.items.len - 1;
+                    var final_block_index = try self.compile_node(ast, ast.node_lists.items[content.nodes].items[i], block_index);
+                    try self.blocks.items[final_block_index].append(.{ .jump = next_block_index });
+
+                    // If this is the last node in the list, the split should direct to the next element in the list, not a new split
+                    if (i == ast.node_lists.items[content.nodes].items.len - 2) {
+                        try self.blocks.append(vm.Block.init(self.allocator));
+                        var last_block_index = self.blocks.items.len - 1;
+                        var final_last_block_index = try self.compile_node(ast, ast.node_lists.items[content.nodes].items[i + 1], last_block_index);
+                        try self.blocks.items[final_last_block_index].append(.{ .jump = next_block_index });
+
+                        try self.blocks.items[split_block_index].append(.{ .split = .{ .a = block_index, .b = last_block_index } });
+                    } else {
+                        // Create a new block for the next split
+                        try self.blocks.append(vm.Block.init(self.allocator));
+                        var new_split_block_index = self.blocks.items.len - 1;
+
+                        // Update the split block to point to the new content block and the new split block
+                        try self.blocks.items[split_block_index].append(.{ .split = .{ .a = block_index, .b = new_split_block_index } });
+                        split_block_index = new_split_block_index;
+                    }
+                }
 
                 return next_block_index;
             },
