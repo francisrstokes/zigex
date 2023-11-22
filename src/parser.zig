@@ -618,7 +618,7 @@ pub const Regex = struct {
                 return current_block_index;
             },
             ASTNodeType.digit => {
-                try self.blocks.items[current_block_index].append(.{ .digit = node.digit });
+                try self.blocks.items[current_block_index].append(.{ .range = .{ .a = '0', .b = '9' } });
                 return current_block_index;
             },
             ASTNodeType.wildcard => {

@@ -1,14 +1,13 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 
-pub const OpType = enum { char, digit, wildcard, range, jump, split, end, end_of_input, start_capture, end_capture };
+pub const OpType = enum { char, wildcard, range, jump, split, end, end_of_input, start_capture, end_capture };
 
 var op_count: usize = 0;
 
 const Op = union(OpType) {
     // Content based
     char: u8,
-    digit: u8,
     wildcard: u8,
     range: struct { a: u8, b: u8 },
 
@@ -25,7 +24,6 @@ const Op = union(OpType) {
     pub fn print(self: *@This(), block_index: usize, pc: usize, match: []const u8) void {
         switch (self.*) {
             OpType.char => std.debug.print("{d}: B{d}.{d}: char({c})         \"{s}\"\n", .{ op_count, block_index, pc, self.char, match }),
-            OpType.digit => std.debug.print("{d}: B{d}.{d}: digit           \"{s}\"\n", .{ op_count, block_index, pc, match }),
             OpType.wildcard => std.debug.print("{d}: B{d}.{d}: wildcard        \"{s}\"\n", .{ op_count, block_index, pc, match }),
             OpType.range => std.debug.print("{d}: B{d}.{d}: range({c}, {c})     \"{s}\"\n", .{ op_count, block_index, pc, self.range.a, self.range.b, match }),
             OpType.split => std.debug.print("{d}: B{d}.{d}: split({d}, {d})     \"{s}\"\n", .{ op_count, block_index, pc, self.split.a, self.split.b, match }),
@@ -50,7 +48,6 @@ pub fn print_block(block: Block, index: usize) void {
     for (block.items) |instruction| {
         switch (instruction) {
             OpType.char => std.debug.print("  char({c})\n", .{instruction.char}),
-            OpType.digit => std.debug.print("  digit\n", .{}),
             OpType.wildcard => std.debug.print("  wildcard\n", .{}),
             OpType.split => std.debug.print("  split({d}, {d})\n", .{ instruction.split.a, instruction.split.b }),
             OpType.range => std.debug.print("  range({c}, {c})\n", .{ instruction.range.a, instruction.range.b }),
@@ -211,25 +208,6 @@ pub const State = struct {
                         if (self.is_end_of_input()) {
                             done = true;
                             return_value = true;
-                        } else {
-                            if (try self.unwind()) {
-                                continue;
-                            }
-                            done = true;
-                        }
-                    },
-                    .digit => {
-                        if (!self.is_end_of_input()) {
-                            if (self.input_str[self.state.index] >= '0' and self.input_str[self.state.index] <= '9') {
-                                self.state.index += 1;
-                                self.state.pc += 1;
-                                continue;
-                            } else {
-                                if (try self.unwind()) {
-                                    continue;
-                                }
-                                done = true;
-                            }
                         } else {
                             if (try self.unwind()) {
                                 continue;
