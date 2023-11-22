@@ -4,7 +4,7 @@ const expect = std.testing.expect;
 
 const vm = @import("vm.zig");
 
-const TokenType = enum { literal, escaped, wildcard, lparen, rparen, alternation, zero_or_one, zero_or_more, one_or_more, lsquare, rsquare, dollar, caret };
+const TokenType = enum { literal, escaped, wildcard, lparen, rparen, alternation, zero_or_one, zero_or_more, one_or_more, lsquare, rsquare, dollar, caret, dash };
 
 const Token = struct {
     tok_type: TokenType,
@@ -22,6 +22,10 @@ const Token = struct {
             else => return error.Unreachable,
         }
     }
+
+    pub fn can_be_range_literal(self: Token) bool {
+        return self.tok_type != TokenType.rsquare;
+    }
 };
 
 const ASTNodeType = enum {
@@ -30,6 +34,7 @@ const ASTNodeType = enum {
     digit,
     wildcard,
     list,
+    range,
     alternation,
     zero_or_one,
     zero_or_more,
@@ -44,11 +49,13 @@ pub const ASTNode = union(ASTNodeType) {
     const Group = struct { nodes: usize, index: usize };
     const Alternation = struct { left: usize, right: usize };
     const List = struct { nodes: usize, negative: bool };
+    const Range = struct { a: u8, b: u8 };
 
     regex: usize,
     literal: u8,
     digit: u8,
     list: List,
+    range: Range,
     wildcard: u8,
     alternation: Alternation,
     zero_or_one: usize,
@@ -81,6 +88,10 @@ pub const ASTNode = union(ASTNodeType) {
             ASTNodeType.literal => {
                 indent_str(indent);
                 std.debug.print("lit({c})\n", .{self.literal});
+            },
+            ASTNodeType.range => {
+                indent_str(indent);
+                std.debug.print("range({c}, {c})\n", .{ self.range.a, self.range.b });
             },
             ASTNodeType.end_of_input => {
                 indent_str(indent);
@@ -285,6 +296,7 @@ pub const Regex = struct {
                 '(' => try token_stream.append(.{ .tok_type = .lparen, .value = '(' }),
                 ')' => try token_stream.append(.{ .tok_type = .rparen, .value = ')' }),
                 '[' => try token_stream.append(.{ .tok_type = .lsquare, .value = '[' }),
+                '-' => try token_stream.append(.{ .tok_type = .dash, .value = '-' }),
                 ']' => try token_stream.append(.{ .tok_type = .rsquare, .value = ']' }),
                 '|' => try token_stream.append(.{ .tok_type = .alternation, .value = '|' }),
                 '.' => try token_stream.append(.{ .tok_type = .wildcard, .value = '.' }),
@@ -325,6 +337,29 @@ pub const Regex = struct {
         return false;
     }
 
+    fn maybe_parse_rangenode(node: ASTNode, current_state: *ParseState, tokens: *TokenStream, node_lists: *NodeLists) !bool {
+        if (tokens.available() >= 2) {
+            const next_token = try tokens.peek(0);
+            const next_next_token = try tokens.peek(1);
+            if (next_token.tok_type == .dash) {
+                if (next_next_token.can_be_range_literal()) {
+                    _ = try tokens.consume();
+                    const range_token = try tokens.consume();
+
+                    if (range_token.value < node.literal) {
+                        std.debug.print("Invalid range: {c} to {c}\n", .{ node.literal, range_token.value });
+                        return error.ParseError;
+                    }
+
+                    const range_node = ASTNode{ .range = .{ .a = node.literal, .b = range_token.value } };
+                    try node_lists.items[current_state.nodes].append(range_node);
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
     fn parse_node(self: *Self, token: Token, current_state: *ParseState, tokens: *TokenStream, ophan_nodes: *std.ArrayList(ASTNode), node_lists: *NodeLists, state_stack: *std.ArrayList(ParseState)) !void {
         // Ugly, but saves on passing in another argument.
         const allocator = ophan_nodes.allocator;
@@ -332,7 +367,14 @@ pub const Regex = struct {
         switch (token.tok_type) {
             .literal => {
                 var node = ASTNode{ .literal = token.value };
-                if (current_state.in_list or !try maybe_parse_and_wrap_quantifier(node, current_state, tokens, ophan_nodes, node_lists)) {
+                if (current_state.in_list) {
+                    if (!try maybe_parse_rangenode(node, current_state, tokens, node_lists)) {
+                        try node_lists.items[current_state.nodes].append(node);
+                    }
+                    return;
+                }
+
+                if (!try maybe_parse_and_wrap_quantifier(node, current_state, tokens, ophan_nodes, node_lists)) {
                     try node_lists.items[current_state.nodes].append(node);
                 }
                 return;
@@ -340,7 +382,9 @@ pub const Regex = struct {
             .dollar => {
                 if (current_state.in_list) {
                     var node = ASTNode{ .literal = token.value };
-                    try node_lists.items[current_state.nodes].append(node);
+                    if (!try maybe_parse_rangenode(node, current_state, tokens, node_lists)) {
+                        try node_lists.items[current_state.nodes].append(node);
+                    }
                     return;
                 }
 
@@ -356,7 +400,14 @@ pub const Regex = struct {
                     node = ASTNode{ .literal = token.value };
                 }
 
-                if (current_state.in_list or !try maybe_parse_and_wrap_quantifier(node, current_state, tokens, ophan_nodes, node_lists)) {
+                if (current_state.in_list) {
+                    if (!try maybe_parse_rangenode(node, current_state, tokens, node_lists)) {
+                        try node_lists.items[current_state.nodes].append(node);
+                    }
+                    return;
+                }
+
+                if (!try maybe_parse_and_wrap_quantifier(node, current_state, tokens, ophan_nodes, node_lists)) {
                     try node_lists.items[current_state.nodes].append(node);
                 }
                 return;
@@ -364,7 +415,9 @@ pub const Regex = struct {
             .wildcard => {
                 if (current_state.in_list) {
                     var node = ASTNode{ .literal = token.value };
-                    try node_lists.items[current_state.nodes].append(node);
+                    if (!try maybe_parse_rangenode(node, current_state, tokens, node_lists)) {
+                        try node_lists.items[current_state.nodes].append(node);
+                    }
                     return;
                 }
 
@@ -377,7 +430,9 @@ pub const Regex = struct {
             .lsquare => {
                 if (current_state.in_list) {
                     var node = ASTNode{ .literal = token.value };
-                    try node_lists.items[current_state.nodes].append(node);
+                    if (!try maybe_parse_rangenode(node, current_state, tokens, node_lists)) {
+                        try node_lists.items[current_state.nodes].append(node);
+                    }
                     return;
                 }
 
@@ -413,7 +468,9 @@ pub const Regex = struct {
             .lparen => {
                 if (current_state.in_list) {
                     var node = ASTNode{ .literal = token.value };
-                    try node_lists.items[current_state.nodes].append(node);
+                    if (!try maybe_parse_rangenode(node, current_state, tokens, node_lists)) {
+                        try node_lists.items[current_state.nodes].append(node);
+                    }
                     return;
                 }
 
@@ -428,7 +485,9 @@ pub const Regex = struct {
             .rparen => {
                 if (current_state.in_list) {
                     var node = ASTNode{ .literal = token.value };
-                    try node_lists.items[current_state.nodes].append(node);
+                    if (!try maybe_parse_rangenode(node, current_state, tokens, node_lists)) {
+                        try node_lists.items[current_state.nodes].append(node);
+                    }
                     return;
                 }
 
@@ -447,7 +506,9 @@ pub const Regex = struct {
             .alternation => {
                 if (current_state.in_list) {
                     var node = ASTNode{ .literal = token.value };
-                    try node_lists.items[current_state.nodes].append(node);
+                    if (!try maybe_parse_rangenode(node, current_state, tokens, node_lists)) {
+                        try node_lists.items[current_state.nodes].append(node);
+                    }
                     return;
                 }
 
@@ -475,17 +536,19 @@ pub const Regex = struct {
 
                 return;
             },
-            .zero_or_more, .zero_or_one, .one_or_more => {
+            else => {
                 if (current_state.in_list) {
                     var node = ASTNode{ .literal = token.value };
-                    try node_lists.items[current_state.nodes].append(node);
+                    if (!try maybe_parse_rangenode(node, current_state, tokens, node_lists)) {
+                        try node_lists.items[current_state.nodes].append(node);
+                    }
                     return;
                 }
 
                 std.debug.print("Unexpected quantifier: {any}\n", .{token});
                 @panic("unreachable");
             },
-            else => @panic("unreachable"),
+            // else => @panic("unreachable"),
         }
     }
 
@@ -564,6 +627,10 @@ pub const Regex = struct {
             },
             ASTNodeType.end_of_input => {
                 try self.blocks.items[current_block_index].append(.{ .end_of_input = 0 });
+                return current_block_index;
+            },
+            ASTNodeType.range => {
+                try self.blocks.items[current_block_index].append(.{ .range = .{ .a = node.range.a, .b = node.range.b } });
                 return current_block_index;
             },
             ASTNodeType.alternation => {

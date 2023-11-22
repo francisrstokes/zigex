@@ -1,13 +1,16 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 
-pub const OpType = enum { char, digit, wildcard, jump, split, end, end_of_input, start_capture, end_capture };
+pub const OpType = enum { char, digit, wildcard, range, jump, split, end, end_of_input, start_capture, end_capture };
+
+var op_count: usize = 0;
 
 const Op = union(OpType) {
     // Content based
     char: u8,
     digit: u8,
     wildcard: u8,
+    range: struct { a: u8, b: u8 },
 
     // Capture based
     start_capture: usize,
@@ -21,16 +24,18 @@ const Op = union(OpType) {
 
     pub fn print(self: *@This(), block_index: usize, pc: usize, match: []const u8) void {
         switch (self.*) {
-            OpType.char => std.debug.print("B{d}.{d}: char({c})         \"{s}\"\n", .{ block_index, pc, self.char, match }),
-            OpType.digit => std.debug.print("B{d}.{d}: digit           \"{s}\"\n", .{ block_index, pc, match }),
-            OpType.wildcard => std.debug.print("B{d}.{d}: wildcard        \"{s}\"\n", .{ block_index, pc, match }),
-            OpType.split => std.debug.print("B{d}.{d}: split({d}, {d})     \"{s}\"\n", .{ block_index, pc, self.split.a, self.split.b, match }),
-            OpType.jump => std.debug.print("B{d}.{d}: jump({d})         \"{s}\"\n", .{ block_index, pc, self.jump, match }),
-            OpType.start_capture => std.debug.print("B{d}.{d}: start_capture({d}) \"{s}\"\n", .{ block_index, pc, self.start_capture, match }),
-            OpType.end_capture => std.debug.print("B{d}.{d}: end_capture({d})  \"{s}\"\n", .{ block_index, pc, self.end_capture, match }),
-            OpType.end => std.debug.print("B{d}.{d}: end             \"{s}\"\n", .{ block_index, pc, match }),
-            OpType.end_of_input => std.debug.print("B{d}.{d}: end_of_input    \"{s}\"\n", .{ block_index, pc, match }),
+            OpType.char => std.debug.print("{d}: B{d}.{d}: char({c})         \"{s}\"\n", .{ op_count, block_index, pc, self.char, match }),
+            OpType.digit => std.debug.print("{d}: B{d}.{d}: digit           \"{s}\"\n", .{ op_count, block_index, pc, match }),
+            OpType.wildcard => std.debug.print("{d}: B{d}.{d}: wildcard        \"{s}\"\n", .{ op_count, block_index, pc, match }),
+            OpType.range => std.debug.print("{d}: B{d}.{d}: range({c}, {c})     \"{s}\"\n", .{ op_count, block_index, pc, self.range.a, self.range.b, match }),
+            OpType.split => std.debug.print("{d}: B{d}.{d}: split({d}, {d})     \"{s}\"\n", .{ op_count, block_index, pc, self.split.a, self.split.b, match }),
+            OpType.jump => std.debug.print("{d}: B{d}.{d}: jump({d})         \"{s}\"\n", .{ op_count, block_index, pc, self.jump, match }),
+            OpType.start_capture => std.debug.print("{d}: B{d}.{d}: start_capture({d}) \"{s}\"\n", .{ op_count, block_index, pc, self.start_capture, match }),
+            OpType.end_capture => std.debug.print("{d}: B{d}.{d}: end_capture({d})  \"{s}\"\n", .{ op_count, block_index, pc, self.end_capture, match }),
+            OpType.end => std.debug.print("{d}: B{d}.{d}: end             \"{s}\"\n", .{ op_count, block_index, pc, match }),
+            OpType.end_of_input => std.debug.print("{d}: B{d}.{d}: end_of_input    \"{s}\"\n", .{ op_count, block_index, pc, match }),
         }
+        op_count += 1;
     }
 };
 
@@ -48,6 +53,7 @@ pub fn print_block(block: Block, index: usize) void {
             OpType.digit => std.debug.print("  digit\n", .{}),
             OpType.wildcard => std.debug.print("  wildcard\n", .{}),
             OpType.split => std.debug.print("  split({d}, {d})\n", .{ instruction.split.a, instruction.split.b }),
+            OpType.range => std.debug.print("  range({c}, {c})\n", .{ instruction.range.a, instruction.range.b }),
             OpType.jump => std.debug.print("  jump({d})\n", .{instruction.jump}),
             OpType.end => std.debug.print("  end\n", .{}),
             OpType.end_of_input => std.debug.print("  end_of_input\n", .{}),
@@ -231,6 +237,25 @@ pub const State = struct {
                             done = true;
                         }
                     },
+                    .range => {
+                        if (!self.is_end_of_input()) {
+                            if (self.input_str[self.state.index] >= op.range.a and self.input_str[self.state.index] <= op.range.b) {
+                                self.state.index += 1;
+                                self.state.pc += 1;
+                                continue;
+                            } else {
+                                if (try self.unwind()) {
+                                    continue;
+                                }
+                                done = true;
+                            }
+                        } else {
+                            if (try self.unwind()) {
+                                continue;
+                            }
+                            done = true;
+                        }
+                    },
                     .wildcard => {
                         if (!self.is_end_of_input()) {
                             self.state.index += 1;
@@ -274,6 +299,7 @@ pub const State = struct {
                         self.state.pc += 1;
                         continue;
                     },
+                    // else => @panic("Unknown op type"),
                 }
             } else {
                 if (try self.unwind()) {

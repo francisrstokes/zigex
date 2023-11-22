@@ -132,3 +132,17 @@ test "[abc]" {
     try test_fully_matching_string("[abc]", "c", &.{});
     try test_non_matching_string("[abc]", "d");
 }
+
+test "0x[0-9a-f]+$" {
+    try test_fully_matching_string("0x[0-9a-f]+$", "0xdeadbeef", &.{});
+    try test_fully_matching_string("0x[0-9a-f]+$", "0xc0decafe", &.{});
+    try test_non_matching_string("0x[0-9a-f]+$", "0xcodecafe");
+}
+
+test "[a-\\d]" {
+    try test_fully_matching_string("[a-\\d]", "a", &.{});
+    try test_fully_matching_string("[a-\\d]", "b", &.{});
+    try test_fully_matching_string("[a-\\d]", "c", &.{});
+    try test_fully_matching_string("[a-\\d]", "d", &.{});
+    try test_non_matching_string("[a-\\d]", "e");
+}
