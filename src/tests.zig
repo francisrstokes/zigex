@@ -102,3 +102,11 @@ test "[a-\\d]" {
     try test_fully_matching_string("[a-\\d]", "d", &.{});
     try test_non_matching_string("[a-\\d]", "e");
 }
+
+test "[^abc]" {
+    try test_non_matching_string("[^abc]", "a");
+    try test_non_matching_string("[^abc]", "b");
+    try test_non_matching_string("[^abc]", "c");
+    try test_fully_matching_string("[^abc]", "d", &.{});
+    try test_fully_matching_string("[^abc]", "$", &.{});
+}

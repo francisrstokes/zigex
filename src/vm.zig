@@ -1,7 +1,7 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 
-pub const OpType = enum { char, wildcard, range, jump, split, end, end_of_input, start_capture, end_capture };
+pub const OpType = enum { char, wildcard, range, jump, split, end, end_of_input, start_capture, end_capture, deadend_marker, deadend };
 
 var op_count: usize = 0;
 
@@ -20,6 +20,8 @@ const Op = union(OpType) {
     split: struct { a: usize, b: usize },
     end: u8,
     end_of_input: u8,
+    deadend: u8,
+    deadend_marker: u8,
 
     pub fn print(self: *@This(), block_index: usize, pc: usize, match: []const u8) void {
         switch (self.*) {
@@ -32,6 +34,8 @@ const Op = union(OpType) {
             OpType.end_capture => std.debug.print("{d}: B{d}.{d}: end_capture({d})  \"{s}\"\n", .{ op_count, block_index, pc, self.end_capture, match }),
             OpType.end => std.debug.print("{d}: B{d}.{d}: end             \"{s}\"\n", .{ op_count, block_index, pc, match }),
             OpType.end_of_input => std.debug.print("{d}: B{d}.{d}: end_of_input    \"{s}\"\n", .{ op_count, block_index, pc, match }),
+            OpType.deadend => std.debug.print("{d}: B{d}.{d}: deadend    \"{s}\"\n", .{ op_count, block_index, pc, match }),
+            OpType.deadend_marker => std.debug.print("{d}: B{d}.{d}: deadend_marker    \"{s}\"\n", .{ op_count, block_index, pc, match }),
         }
         op_count += 1;
     }
@@ -56,6 +60,8 @@ pub fn print_block(block: Block, index: usize) void {
             OpType.end_of_input => std.debug.print("  end_of_input\n", .{}),
             OpType.start_capture => std.debug.print("  start_capture({d})\n", .{instruction.start_capture}),
             OpType.end_capture => std.debug.print("  end_capture({d})\n", .{instruction.end_capture}),
+            OpType.deadend => std.debug.print("  deadend\n", .{}),
+            OpType.deadend_marker => std.debug.print("  deadend_marker\n", .{}),
         }
     }
     std.debug.print("\n", .{});
@@ -98,6 +104,7 @@ pub const State = struct {
     stack: std.ArrayList(ThreadState),
     input_str: []const u8,
     allocator: Allocator,
+    deadend_marker: usize = 0,
     config: Config,
 
     pub fn init(allocator: Allocator, blocks: *std.ArrayList(Block), input_str: []const u8, config: Config) State {
@@ -276,6 +283,24 @@ pub const State = struct {
                         try self.state.captures.put(op.end_capture, self.input_str[start..end]);
                         self.state.pc += 1;
                         continue;
+                    },
+                    .deadend_marker => {
+                        self.deadend_marker = self.stack.items.len;
+                        self.state.pc += 1;
+                        continue;
+                    },
+                    .deadend => {
+                        // Reset the stack to the deadend marker
+                        while (self.stack.items.len > self.deadend_marker) {
+                            _ = self.stack.pop();
+                        }
+
+                        self.deadend_marker = 0;
+
+                        if (try self.unwind()) {
+                            continue;
+                        }
+                        done = true;
                     },
                     // else => @panic("Unknown op type"),
                 }

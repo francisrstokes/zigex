@@ -669,44 +669,80 @@ pub const Regex = struct {
                 try self.blocks.append(vm.Block.init(self.allocator));
                 var next_block_index = self.blocks.items.len - 1;
 
-                // Trivial case where we only have a single node in the list.
-                // Generate a block for that node, and add a jump to the next block.
-                if (ast.node_lists.items[content.nodes].items.len == 1) {
-                    var final_block_index = try self.compile_node(ast, ast.node_lists.items[content.nodes].items[0], current_block_index);
-                    try self.blocks.items[final_block_index].append(.{ .jump = next_block_index });
-                    return next_block_index;
-                }
-
-                // In the case that we have N nodes in the list, we need to generate N-1 splits.
-                try self.blocks.append(vm.Block.init(self.allocator));
-                var split_block_index = self.blocks.items.len - 1;
-
-                try self.blocks.items[current_block_index].append(.{ .jump = split_block_index });
-
-                for (0..ast.node_lists.items[content.nodes].items.len - 1) |i| {
-                    // Create a block for the content node, compile it, and add a jump to the next block.
-                    try self.blocks.append(vm.Block.init(self.allocator));
-                    var block_index = self.blocks.items.len - 1;
-                    var final_block_index = try self.compile_node(ast, ast.node_lists.items[content.nodes].items[i], block_index);
-                    try self.blocks.items[final_block_index].append(.{ .jump = next_block_index });
-
-                    // If this is the last node in the list, the split should direct to the next element in the list, not a new split
-                    if (i == ast.node_lists.items[content.nodes].items.len - 2) {
-                        try self.blocks.append(vm.Block.init(self.allocator));
-                        var last_block_index = self.blocks.items.len - 1;
-                        var final_last_block_index = try self.compile_node(ast, ast.node_lists.items[content.nodes].items[i + 1], last_block_index);
-                        try self.blocks.items[final_last_block_index].append(.{ .jump = next_block_index });
-
-                        try self.blocks.items[split_block_index].append(.{ .split = .{ .a = block_index, .b = last_block_index } });
-                    } else {
-                        // Create a new block for the next split
-                        try self.blocks.append(vm.Block.init(self.allocator));
-                        var new_split_block_index = self.blocks.items.len - 1;
-
-                        // Update the split block to point to the new content block and the new split block
-                        try self.blocks.items[split_block_index].append(.{ .split = .{ .a = block_index, .b = new_split_block_index } });
-                        split_block_index = new_split_block_index;
+                if (!content.negative) {
+                    // Trivial case where we only have a single node in the list.
+                    // Generate a block for that node, and add a jump to the next block.
+                    if (ast.node_lists.items[content.nodes].items.len == 1) {
+                        var final_block_index = try self.compile_node(ast, ast.node_lists.items[content.nodes].items[0], current_block_index);
+                        try self.blocks.items[final_block_index].append(.{ .jump = next_block_index });
+                        return next_block_index;
                     }
+
+                    // In the case that we have N nodes in the list, we need to generate N-1 splits.
+                    try self.blocks.append(vm.Block.init(self.allocator));
+                    var split_block_index = self.blocks.items.len - 1;
+
+                    try self.blocks.items[current_block_index].append(.{ .jump = split_block_index });
+
+                    for (0..ast.node_lists.items[content.nodes].items.len - 1) |i| {
+                        // Create a block for the content node, compile it, and add a jump to the next block.
+                        try self.blocks.append(vm.Block.init(self.allocator));
+                        var block_index = self.blocks.items.len - 1;
+                        var final_block_index = try self.compile_node(ast, ast.node_lists.items[content.nodes].items[i], block_index);
+                        try self.blocks.items[final_block_index].append(.{ .jump = next_block_index });
+
+                        // If this is the last node in the list, the split should direct to the next element in the list, not a new split
+                        if (i == ast.node_lists.items[content.nodes].items.len - 2) {
+                            try self.blocks.append(vm.Block.init(self.allocator));
+                            var last_block_index = self.blocks.items.len - 1;
+                            var final_last_block_index = try self.compile_node(ast, ast.node_lists.items[content.nodes].items[i + 1], last_block_index);
+                            try self.blocks.items[final_last_block_index].append(.{ .jump = next_block_index });
+
+                            try self.blocks.items[split_block_index].append(.{ .split = .{ .a = block_index, .b = last_block_index } });
+                        } else {
+                            // Create a new block for the next split
+                            try self.blocks.append(vm.Block.init(self.allocator));
+                            var new_split_block_index = self.blocks.items.len - 1;
+
+                            // Update the split block to point to the new content block and the new split block
+                            try self.blocks.items[split_block_index].append(.{ .split = .{ .a = block_index, .b = new_split_block_index } });
+                            split_block_index = new_split_block_index;
+                        }
+                    }
+                } else {
+                    // For a negative list, we need to generate a split for each node in the list.
+                    try self.blocks.append(vm.Block.init(self.allocator));
+                    var split_block_index = self.blocks.items.len - 1;
+                    try self.blocks.items[split_block_index].append(.{ .split = .{ .a = 0, .b = 0 } });
+
+                    try self.blocks.items[current_block_index].append(.{ .deadend_marker = 0 });
+                    try self.blocks.items[current_block_index].append(.{ .jump = split_block_index });
+
+                    for (0..ast.node_lists.items[content.nodes].items.len) |i| {
+                        // Create a block for the content node, compile it, and add a deadend after.
+                        try self.blocks.append(vm.Block.init(self.allocator));
+                        var block_index = self.blocks.items.len - 1;
+                        var final_block_index = try self.compile_node(ast, ast.node_lists.items[content.nodes].items[i], block_index);
+                        try self.blocks.items[final_block_index].append(.{ .deadend = 0 });
+
+                        const split_block_len = self.blocks.items[split_block_index].items.len;
+                        // If this is the last node in the list, the split should direct to the next_block_index
+                        if (i == ast.node_lists.items[content.nodes].items.len - 1) {
+                            self.blocks.items[split_block_index].items[split_block_len - 1].split.a = block_index;
+                            self.blocks.items[split_block_index].items[split_block_len - 1].split.b = next_block_index;
+                        } else {
+                            // Update the split block to point to the new content block and the new split block
+                            try self.blocks.append(vm.Block.init(self.allocator));
+                            var new_split_block_index = self.blocks.items.len - 1;
+                            try self.blocks.items[new_split_block_index].append(.{ .split = .{ .a = 0, .b = 0 } });
+
+                            self.blocks.items[split_block_index].items[split_block_len - 1].split.a = block_index;
+                            self.blocks.items[split_block_index].items[split_block_len - 1].split.b = new_split_block_index;
+                            split_block_index = new_split_block_index;
+                        }
+                    }
+
+                    try self.blocks.items[next_block_index].append(.{ .wildcard = 0 });
                 }
 
                 return next_block_index;
