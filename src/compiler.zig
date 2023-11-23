@@ -43,7 +43,7 @@ const ASTNodeType = enum {
     end_of_input,
 };
 
-pub const ASTNode = union(ASTNodeType) {
+const ASTNode = union(ASTNodeType) {
     const Self = @This();
 
     const Group = struct { nodes: usize, index: usize };
@@ -178,7 +178,7 @@ pub const ASTNode = union(ASTNodeType) {
     }
 };
 
-pub const RegexAST = struct {
+const RegexAST = struct {
     const Self = @This();
 
     root: ASTNode,
@@ -233,7 +233,7 @@ const TokenStream = struct {
     }
 };
 
-pub const Regex = struct {
+pub const Compiled = struct {
     const Self = @This();
 
     const NodeLists = std.ArrayList(std.ArrayList(ASTNode));
@@ -260,7 +260,7 @@ pub const Regex = struct {
     group_index: usize,
 
     pub fn init(allocator: Allocator, re: []const u8, config: RegexConfig) !Self {
-        var regex = Regex{ .re = re, .allocator = allocator, .config = config, .blocks = std.ArrayList(vm.Block).init(allocator), .group_index = 0 };
+        var regex = Self{ .re = re, .allocator = allocator, .config = config, .blocks = std.ArrayList(vm.Block).init(allocator), .group_index = 0 };
 
         var arena = std.heap.ArenaAllocator.init(allocator);
         var arena_allocator = arena.allocator();

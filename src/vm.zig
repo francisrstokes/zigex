@@ -94,7 +94,7 @@ const ThreadState = struct {
     }
 };
 
-pub const State = struct {
+pub const VMInstance = struct {
     const Self = @This();
 
     const Config = struct { log: bool = false };
@@ -107,7 +107,7 @@ pub const State = struct {
     deadend_marker: usize = 0,
     config: Config,
 
-    pub fn init(allocator: Allocator, blocks: *std.ArrayList(Block), input_str: []const u8, config: Config) State {
+    pub fn init(allocator: Allocator, blocks: *std.ArrayList(Block), input_str: []const u8, config: Config) Self {
         return .{
             .blocks = blocks,
             .state = .{ .block_index = 0, .pc = 0, .index = 0, .next_split = null, .captures = std.AutoHashMap(usize, []const u8).init(allocator), .capture_stack = std.ArrayList(usize).init(allocator) },

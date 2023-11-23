@@ -2,40 +2,37 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 const expect = std.testing.expect;
 
-const parser = @import("parser.zig");
-const vm = @import("vm.zig");
+const Regex = @import("regex.zig").Regex;
 
 fn test_fully_matching_string(comptime re_str: []const u8, comptime input: []const u8, captures: []const []const u8) !void {
     const allocator = std.testing.allocator;
 
-    var re = try parser.Regex.init(allocator, re_str, .{});
+    var re = try Regex.init(allocator, re_str);
     defer re.deinit();
 
-    var re_state = vm.State.init(allocator, &re.blocks, input, .{});
-    defer re_state.deinit();
-    var match = try re_state.run();
+    var match = try re.match(input);
+    defer match.?.deinit();
 
-    try expect(match);
-    try expect(std.mem.eql(u8, re_state.get_match(), input));
+    try expect(match != null);
+    try expect(std.mem.eql(u8, match.?.match, input));
 
-    try expect(re_state.state.captures.count() == captures.len);
-    var i: usize = 0;
-    while (i < captures.len) : (i += 1) {
-        try expect(std.mem.eql(u8, captures[i], re_state.state.captures.get(i).?));
+    var groups = try match.?.get_groups(allocator);
+    defer groups.deinit();
+
+    try expect(groups.items.len == captures.len);
+    for (0..captures.len) |i| {
+        try expect(std.mem.eql(u8, captures[i], groups.items[i]));
     }
 }
 
 fn test_non_matching_string(comptime re_str: []const u8, comptime input: []const u8) !void {
     const allocator = std.testing.allocator;
 
-    var re = try parser.Regex.init(allocator, re_str, .{});
+    var re = try Regex.init(allocator, re_str);
     defer re.deinit();
 
-    var re_state = vm.State.init(allocator, &re.blocks, input, .{});
-    defer re_state.deinit();
-    var match = try re_state.run();
-
-    try expect(!match);
+    var match = try re.match(input);
+    try expect(match == null);
 }
 
 test "a" {
