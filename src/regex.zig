@@ -7,6 +7,7 @@ const VMInstance = @import("vm.zig").VMInstance;
 pub const MatchObject = struct {
     const Self = @This();
 
+    num_groups: usize,
     groups: std.AutoHashMap(usize, []const u8),
     match: []const u8,
 
@@ -18,12 +19,10 @@ pub const MatchObject = struct {
         return self.groups.get(group);
     }
 
-    pub fn get_groups(self: *Self, allocator: Allocator) !std.ArrayList([]const u8) {
-        var array = std.ArrayList([]const u8).init(allocator);
-        for (0..self.groups.count()) |i| {
-            if (self.groups.get(i)) |value| {
-                try array.append(value);
-            }
+    pub fn get_groups(self: *Self, allocator: Allocator) !std.ArrayList(?[]const u8) {
+        var array = std.ArrayList(?[]const u8).init(allocator);
+        for (0..self.num_groups) |i| {
+            try array.append(self.groups.get(i));
         }
         return array;
     }
@@ -55,7 +54,7 @@ pub const Regex = struct {
             return null;
         }
 
-        return MatchObject{ .groups = vm_instance.state.captures.move(), .match = vm_instance.get_match() };
+        return MatchObject{ .num_groups = vm_instance.num_groups, .groups = vm_instance.state.captures.move(), .match = vm_instance.get_match() };
     }
 
     pub fn deinit(self: *Self) void {

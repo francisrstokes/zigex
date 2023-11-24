@@ -1,8 +1,6 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 
-const Compiled = @import("compiler.zig").Compiled;
-const vm = @import("vm.zig");
 const Regex = @import("regex.zig").Regex;
 
 pub fn main() !void {
@@ -38,7 +36,11 @@ pub fn main() !void {
     var groups = try match.get_groups(allocator);
     defer groups.deinit();
 
-    for (groups.items) |group| {
-        std.debug.print("Group: {s}\n", .{group});
+    for (groups.items, 0..) |group, i| {
+        if (group) |g| {
+            std.debug.print("Group {d}: {s}\n", .{ i, g });
+        } else {
+            std.debug.print("Group {d}: <null>\n", .{i});
+        }
     }
 }

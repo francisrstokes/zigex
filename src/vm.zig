@@ -106,6 +106,7 @@ pub const VMInstance = struct {
     allocator: Allocator,
     deadend_marker: usize = 0,
     config: Config,
+    num_groups: usize = 0,
 
     pub fn init(allocator: Allocator, blocks: *std.ArrayList(Block), input_str: []const u8, config: Config) Self {
         return .{
@@ -135,6 +136,12 @@ pub const VMInstance = struct {
 
     pub fn get_match(self: *Self) []const u8 {
         return self.input_str[0..self.state.index];
+    }
+
+    fn update_group_count(self: *Self, observed_group_index: usize) void {
+        if (observed_group_index >= self.num_groups) {
+            self.num_groups = observed_group_index + 1;
+        }
     }
 
     fn is_end_of_input(self: *Self) bool {
@@ -273,6 +280,7 @@ pub const VMInstance = struct {
                         return_value = true;
                     },
                     .start_capture => {
+                        self.update_group_count(op.start_capture);
                         try self.state.capture_stack.append(self.state.index);
                         self.state.pc += 1;
                         continue;

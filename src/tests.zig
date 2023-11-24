@@ -4,7 +4,7 @@ const expect = std.testing.expect;
 
 const Regex = @import("regex.zig").Regex;
 
-fn test_fully_matching_string(comptime re_str: []const u8, comptime input: []const u8, captures: []const []const u8) !void {
+fn test_fully_matching_string(comptime re_str: []const u8, comptime input: []const u8, captures: []const ?[]const u8) !void {
     const allocator = std.testing.allocator;
 
     var re = try Regex.init(allocator, re_str);
@@ -21,7 +21,17 @@ fn test_fully_matching_string(comptime re_str: []const u8, comptime input: []con
 
     try expect(groups.items.len == captures.len);
     for (0..captures.len) |i| {
-        try expect(std.mem.eql(u8, captures[i], groups.items[i]));
+        const capture_null = captures[i] == null;
+        const group_null = groups.items[i] == null;
+
+        try expect(capture_null == group_null);
+
+        if (!capture_null) {
+            const capture_str = captures[i].?;
+            const group_str = groups.items[i].?;
+            const strings_equal = std.mem.eql(u8, capture_str, group_str);
+            _ = try expect(strings_equal);
+        }
     }
 }
 
@@ -55,7 +65,7 @@ test "a|b" {
 test "(a|b)?c" {
     try test_fully_matching_string("(a|b)?c", "ac", &.{"a"});
     try test_fully_matching_string("(a|b)?c", "bc", &.{"b"});
-    try test_fully_matching_string("(a|b)?c", "c", &.{});
+    try test_fully_matching_string("(a|b)?c", "c", &.{null});
 }
 
 test ".+b|\\d" {
