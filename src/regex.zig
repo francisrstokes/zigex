@@ -11,12 +11,16 @@ pub const MatchObject = struct {
     groups: std.AutoHashMap(usize, []const u8),
     match: []const u8,
 
-    pub fn get_match(self: *Self) []u8 {
+    pub fn get_match(self: *Self) []const u8 {
         return self.match;
     }
 
-    pub fn get_group(self: *Self, group: usize) ![]u8 {
-        return self.groups.get(group);
+    pub fn get_group(self: *Self, group: usize) !?[]const u8 {
+        // Groups are actually 1-indexed, but we store them as 0-indexed.
+        if (group == 0) {
+            return null;
+        }
+        return self.groups.get(group - 1);
     }
 
     pub fn get_groups(self: *Self, allocator: Allocator) !std.ArrayList(?[]const u8) {

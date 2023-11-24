@@ -45,6 +45,25 @@ fn test_non_matching_string(comptime re_str: []const u8, comptime input: []const
     try expect(match == null);
 }
 
+test "1-Indexed groups" {
+    const allocator = std.testing.allocator;
+
+    const re_str = "((a)(.))c";
+    const input = "abc";
+
+    var re = try Regex.init(allocator, re_str);
+    defer re.deinit();
+
+    var match = (try re.match(input)).?;
+    defer match.deinit();
+
+    const group1 = (try match.get_group(1)).?;
+    const group2 = (try match.get_group(2)).?;
+
+    try expect(std.mem.eql(u8, group1, "ab"));
+    try expect(std.mem.eql(u8, group2, "a"));
+}
+
 test "a" {
     try test_fully_matching_string("a", "a", &.{});
 }
