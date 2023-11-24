@@ -321,7 +321,7 @@ pub const Compiled = struct {
         return token_stream;
     }
 
-    fn maybe_parse_and_wrap_quantifier(node: ASTNode, current_state: *ParseState, tokens: *TokenStream, ophan_nodes: *std.ArrayList(ASTNode), node_lists: *NodeLists) !bool {
+    fn maybe_parse_and_wrap_quantifier(node: ASTNode, tokens: *TokenStream, ophan_nodes: *std.ArrayList(ASTNode)) !?ASTNode {
         if (tokens.available() > 0) {
             const next_token = try tokens.peek(0);
             if (next_token.is_quantifier()) {
@@ -329,15 +329,13 @@ pub const Compiled = struct {
                 try ophan_nodes.append(node);
                 var child_index = ophan_nodes.items.len - 1;
 
-                const quantifier_node = try quantifier_token.to_quantifier_node(child_index);
-                try node_lists.items[current_state.nodes].append(quantifier_node);
-                return true;
+                return try quantifier_token.to_quantifier_node(child_index);
             }
         }
-        return false;
+        return null;
     }
 
-    fn maybe_parse_rangenode(node: ASTNode, current_state: *ParseState, tokens: *TokenStream, node_lists: *NodeLists) !bool {
+    fn maybe_parse_rangenode(node: ASTNode, tokens: *TokenStream) !?ASTNode {
         if (tokens.available() >= 2) {
             const next_token = try tokens.peek(0);
             const next_next_token = try tokens.peek(1);
@@ -351,13 +349,11 @@ pub const Compiled = struct {
                         return error.ParseError;
                     }
 
-                    const range_node = ASTNode{ .range = .{ .a = node.literal, .b = range_token.value } };
-                    try node_lists.items[current_state.nodes].append(range_node);
-                    return true;
+                    return ASTNode{ .range = .{ .a = node.literal, .b = range_token.value } };
                 }
             }
         }
-        return false;
+        return null;
     }
 
     fn maybe_parse_hex_literal(tokens: *TokenStream) !?ASTNode {
@@ -394,13 +390,17 @@ pub const Compiled = struct {
             .literal => {
                 var node = ASTNode{ .literal = token.value };
                 if (current_state.in_list) {
-                    if (!try maybe_parse_rangenode(node, current_state, tokens, node_lists)) {
+                    if (try maybe_parse_rangenode(node, tokens)) |range_node| {
+                        try node_lists.items[current_state.nodes].append(range_node);
+                    } else {
                         try node_lists.items[current_state.nodes].append(node);
                     }
                     return;
                 }
 
-                if (!try maybe_parse_and_wrap_quantifier(node, current_state, tokens, ophan_nodes, node_lists)) {
+                if (try maybe_parse_and_wrap_quantifier(node, tokens, ophan_nodes)) |quantifier_node| {
+                    try node_lists.items[current_state.nodes].append(quantifier_node);
+                } else {
                     try node_lists.items[current_state.nodes].append(node);
                 }
                 return;
@@ -408,7 +408,9 @@ pub const Compiled = struct {
             .dollar => {
                 if (current_state.in_list) {
                     var node = ASTNode{ .literal = token.value };
-                    if (!try maybe_parse_rangenode(node, current_state, tokens, node_lists)) {
+                    if (try maybe_parse_rangenode(node, tokens)) |range_node| {
+                        try node_lists.items[current_state.nodes].append(range_node);
+                    } else {
                         try node_lists.items[current_state.nodes].append(node);
                     }
                     return;
@@ -434,13 +436,17 @@ pub const Compiled = struct {
                 }
 
                 if (current_state.in_list) {
-                    if (!try maybe_parse_rangenode(node, current_state, tokens, node_lists)) {
+                    if (try maybe_parse_rangenode(node, tokens)) |range_node| {
+                        try node_lists.items[current_state.nodes].append(range_node);
+                    } else {
                         try node_lists.items[current_state.nodes].append(node);
                     }
                     return;
                 }
 
-                if (!try maybe_parse_and_wrap_quantifier(node, current_state, tokens, ophan_nodes, node_lists)) {
+                if (try maybe_parse_and_wrap_quantifier(node, tokens, ophan_nodes)) |quantifier_node| {
+                    try node_lists.items[current_state.nodes].append(quantifier_node);
+                } else {
                     try node_lists.items[current_state.nodes].append(node);
                 }
                 return;
@@ -448,14 +454,18 @@ pub const Compiled = struct {
             .wildcard => {
                 if (current_state.in_list) {
                     var node = ASTNode{ .literal = token.value };
-                    if (!try maybe_parse_rangenode(node, current_state, tokens, node_lists)) {
+                    if (try maybe_parse_rangenode(node, tokens)) |range_node| {
+                        try node_lists.items[current_state.nodes].append(range_node);
+                    } else {
                         try node_lists.items[current_state.nodes].append(node);
                     }
                     return;
                 }
 
                 var node = ASTNode{ .wildcard = 0 };
-                if (!try maybe_parse_and_wrap_quantifier(node, current_state, tokens, ophan_nodes, node_lists)) {
+                if (try maybe_parse_and_wrap_quantifier(node, tokens, ophan_nodes)) |quantifier_node| {
+                    try node_lists.items[current_state.nodes].append(quantifier_node);
+                } else {
                     try node_lists.items[current_state.nodes].append(node);
                 }
                 return;
@@ -463,7 +473,9 @@ pub const Compiled = struct {
             .lsquare => {
                 if (current_state.in_list) {
                     var node = ASTNode{ .literal = token.value };
-                    if (!try maybe_parse_rangenode(node, current_state, tokens, node_lists)) {
+                    if (try maybe_parse_rangenode(node, tokens)) |range_node| {
+                        try node_lists.items[current_state.nodes].append(range_node);
+                    } else {
                         try node_lists.items[current_state.nodes].append(node);
                     }
                     return;
@@ -493,7 +505,9 @@ pub const Compiled = struct {
                 var node = ASTNode{ .list = .{ .nodes = current_state.nodes, .negative = current_state.is_negative } };
                 current_state.* = state_stack.pop();
 
-                if (!try maybe_parse_and_wrap_quantifier(node, current_state, tokens, ophan_nodes, node_lists)) {
+                if (try maybe_parse_and_wrap_quantifier(node, tokens, ophan_nodes)) |quantifier_node| {
+                    try node_lists.items[current_state.nodes].append(quantifier_node);
+                } else {
                     try node_lists.items[current_state.nodes].append(node);
                 }
                 return;
@@ -501,7 +515,9 @@ pub const Compiled = struct {
             .lparen => {
                 if (current_state.in_list) {
                     var node = ASTNode{ .literal = token.value };
-                    if (!try maybe_parse_rangenode(node, current_state, tokens, node_lists)) {
+                    if (try maybe_parse_rangenode(node, tokens)) |range_node| {
+                        try node_lists.items[current_state.nodes].append(range_node);
+                    } else {
                         try node_lists.items[current_state.nodes].append(node);
                     }
                     return;
@@ -518,7 +534,9 @@ pub const Compiled = struct {
             .rparen => {
                 if (current_state.in_list) {
                     var node = ASTNode{ .literal = token.value };
-                    if (!try maybe_parse_rangenode(node, current_state, tokens, node_lists)) {
+                    if (try maybe_parse_rangenode(node, tokens)) |range_node| {
+                        try node_lists.items[current_state.nodes].append(range_node);
+                    } else {
                         try node_lists.items[current_state.nodes].append(node);
                     }
                     return;
@@ -531,7 +549,9 @@ pub const Compiled = struct {
                 var node = ASTNode{ .group = .{ .index = current_state.group_index, .nodes = group_nodes_index } };
                 current_state.* = state_stack.pop();
 
-                if (!try maybe_parse_and_wrap_quantifier(node, current_state, tokens, ophan_nodes, node_lists)) {
+                if (try maybe_parse_and_wrap_quantifier(node, tokens, ophan_nodes)) |quantifier_node| {
+                    try node_lists.items[current_state.nodes].append(quantifier_node);
+                } else {
                     try node_lists.items[current_state.nodes].append(node);
                 }
                 return;
@@ -539,7 +559,9 @@ pub const Compiled = struct {
             .alternation => {
                 if (current_state.in_list) {
                     var node = ASTNode{ .literal = token.value };
-                    if (!try maybe_parse_rangenode(node, current_state, tokens, node_lists)) {
+                    if (try maybe_parse_rangenode(node, tokens)) |range_node| {
+                        try node_lists.items[current_state.nodes].append(range_node);
+                    } else {
                         try node_lists.items[current_state.nodes].append(node);
                     }
                     return;
@@ -572,7 +594,9 @@ pub const Compiled = struct {
             else => {
                 if (current_state.in_list) {
                     var node = ASTNode{ .literal = token.value };
-                    if (!try maybe_parse_rangenode(node, current_state, tokens, node_lists)) {
+                    if (try maybe_parse_rangenode(node, tokens)) |range_node| {
+                        try node_lists.items[current_state.nodes].append(range_node);
+                    } else {
                         try node_lists.items[current_state.nodes].append(node);
                     }
                     return;
