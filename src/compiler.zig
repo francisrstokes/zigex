@@ -366,6 +366,32 @@ pub const Compiled = struct {
         return false;
     }
 
+    fn maybe_parse_hex_literal(tokens: *TokenStream) !?ASTNode {
+        if (tokens.available() >= 2) {
+            const next_token = try tokens.peek(0);
+            const next_next_token = try tokens.peek(1);
+            const both_literals = next_token.tok_type == .literal and next_next_token.tok_type == .literal;
+
+            if (both_literals) {
+                if (is_hex_char(next_token.value)) {
+                    _ = try tokens.consume();
+                    var hex_str: [2]u8 = .{ '0', '0' };
+                    if (is_hex_char(next_next_token.value)) {
+                        _ = try tokens.consume();
+                        hex_str[0] = next_token.value;
+                        hex_str[1] = next_next_token.value;
+                    } else {
+                        hex_str[1] = next_token.value;
+                    }
+
+                    const byte_value = try std.fmt.parseInt(u8, &hex_str, 16);
+                    return ASTNode{ .literal = byte_value };
+                }
+            }
+        }
+        return null;
+    }
+
     fn parse_node(self: *Self, token: Token, current_state: *ParseState, tokens: *TokenStream, ophan_nodes: *std.ArrayList(ASTNode), node_lists: *NodeLists, state_stack: *std.ArrayList(ParseState)) !void {
         // Ugly, but saves on passing in another argument.
         const allocator = ophan_nodes.allocator;
@@ -403,6 +429,13 @@ pub const Compiled = struct {
                 switch (token.value) {
                     'd' => node = ASTNode{ .digit = 0 },
                     's' => node = ASTNode{ .whitespace = 0 },
+                    'x' => {
+                        if (try maybe_parse_hex_literal(tokens)) |n| {
+                            node = n;
+                        } else {
+                            node = ASTNode{ .literal = 0 };
+                        }
+                    },
                     else => node = ASTNode{ .literal = token.value },
                 }
 
@@ -844,3 +877,7 @@ pub const Compiled = struct {
         self.blocks.deinit();
     }
 };
+
+fn is_hex_char(c: u8) bool {
+    return (c >= '0' and c <= '9') or (c >= 'a' and c <= 'f') or (c >= 'A' and c <= 'F');
+}

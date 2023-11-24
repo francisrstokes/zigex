@@ -145,3 +145,17 @@ test "a\\sb$" {
 test "a\\sb\\s*c\\s+d$" {
     try test_fully_matching_string("a\\sb\\s?c\\s+d$", "a b\tc\r\x0c\n\n   d", &.{});
 }
+
+test "\\x40+" {
+    try test_fully_matching_string("\\x40+", "@@@@", &.{});
+}
+
+test "\\xcz$" {
+    const input: [2]u8 = .{ 0x0c, 'z' };
+    try test_fully_matching_string("\\xcz$", &input, &.{});
+}
+
+test "\\xz$" {
+    const input: [2]u8 = .{ 0, 'z' };
+    try test_fully_matching_string("\\xz$", &input, &.{});
+}
