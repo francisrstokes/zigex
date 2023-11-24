@@ -282,11 +282,9 @@ pub const Compiled = struct {
 
         try regex.compile(&ast);
         if (regex.config.dump_blocks) {
-            var i: usize = 0;
             std.debug.print("\n---------- VM Blocks ----------\n", .{});
-            for (regex.blocks.items) |block| {
+            for (regex.blocks.items, 0..) |block, i| {
                 vm.print_block(block, i);
-                i += 1;
             }
         }
 
@@ -615,7 +613,7 @@ pub const Compiled = struct {
 
     fn compile_node(self: *Self, ast: *RegexAST, node: ASTNode, current_block_index: usize) !usize {
         switch (node) {
-            ASTNodeType.regex => {
+            .regex => {
                 var block_index: usize = current_block_index;
                 for (ast.node_lists.items[node.regex].items) |child| {
                     block_index = try self.compile_node(ast, child, block_index);
@@ -623,7 +621,7 @@ pub const Compiled = struct {
                 try self.blocks.items[block_index].append(.{ .end = 0 });
                 return block_index;
             },
-            ASTNodeType.group => {
+            .group => {
                 try self.blocks.append(vm.Block.init(self.allocator));
                 var content_block_index = self.blocks.items.len - 1;
 
@@ -652,31 +650,31 @@ pub const Compiled = struct {
 
                 return next_block_index;
             },
-            ASTNodeType.literal => {
+            .literal => {
                 try self.blocks.items[current_block_index].append(.{ .char = node.literal });
                 return current_block_index;
             },
-            ASTNodeType.digit => {
+            .digit => {
                 try self.blocks.items[current_block_index].append(.{ .range = .{ .a = '0', .b = '9' } });
                 return current_block_index;
             },
-            ASTNodeType.whitespace => {
+            .whitespace => {
                 try self.blocks.items[current_block_index].append(.{ .whitespace = 0 });
                 return current_block_index;
             },
-            ASTNodeType.wildcard => {
+            .wildcard => {
                 try self.blocks.items[current_block_index].append(.{ .wildcard = node.wildcard });
                 return current_block_index;
             },
-            ASTNodeType.end_of_input => {
+            .end_of_input => {
                 try self.blocks.items[current_block_index].append(.{ .end_of_input = 0 });
                 return current_block_index;
             },
-            ASTNodeType.range => {
+            .range => {
                 try self.blocks.items[current_block_index].append(.{ .range = .{ .a = node.range.a, .b = node.range.b } });
                 return current_block_index;
             },
-            ASTNodeType.alternation => {
+            .alternation => {
                 var content = node.alternation;
 
                 try self.blocks.append(vm.Block.init(self.allocator));
@@ -702,7 +700,7 @@ pub const Compiled = struct {
 
                 return next_block_index;
             },
-            ASTNodeType.list => {
+            .list => {
                 var content = node.list;
 
                 if (ast.node_lists.items[content.nodes].items.len == 0) {
@@ -790,7 +788,7 @@ pub const Compiled = struct {
 
                 return next_block_index;
             },
-            ASTNodeType.one_or_more => {
+            .one_or_more => {
                 var content = ast.ophan_nodes.items[node.one_or_more];
 
                 try self.blocks.append(vm.Block.init(self.allocator));
@@ -813,7 +811,7 @@ pub const Compiled = struct {
 
                 return next_block_index;
             },
-            ASTNodeType.zero_or_one => {
+            .zero_or_one => {
                 var content = ast.ophan_nodes.items[node.zero_or_one];
 
                 try self.blocks.append(vm.Block.init(self.allocator));
@@ -837,7 +835,7 @@ pub const Compiled = struct {
 
                 return next_block_index;
             },
-            ASTNodeType.zero_or_more => {
+            .zero_or_more => {
                 var content = ast.ophan_nodes.items[node.zero_or_more];
 
                 try self.blocks.append(vm.Block.init(self.allocator));
