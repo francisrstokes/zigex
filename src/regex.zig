@@ -1,8 +1,12 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 
-const Compiled = @import("compiler.zig").Compiled;
-const VMInstance = @import("vm.zig").VMInstance;
+const Tokeniser = @import("compiler/tokeniser.zig");
+const Parser = @import("compiler/parser.zig").Parser;
+const compiler = @import("compiler/compiler.zig");
+const Compiler = compiler.Compiler;
+const vm = @import("vm.zig");
+const VMInstance = vm.VMInstance;
 const DebugConfig = @import("debug-config.zig").DebugConfig;
 
 pub const MatchObject = struct {
@@ -41,19 +45,40 @@ pub const Regex = struct {
     const Self = @This();
 
     allocator: Allocator,
-    compiled: Compiled,
+    vm_blocks: std.ArrayList(vm.Block),
     debug_config: DebugConfig,
 
     pub fn init(allocator: Allocator, regular_expression: []const u8, debug_config: DebugConfig) !Self {
+        var arena = std.heap.ArenaAllocator.init(allocator);
+        defer arena.deinit();
+        var arena_allocator = arena.allocator();
+
+        var token_stream = try Tokeniser.tokenise(arena_allocator, regular_expression);
+        var ast = try Parser.parse(arena_allocator, &token_stream);
+        if (debug_config.dump_ast) {
+            std.debug.print("\n------------- AST -------------\n", .{});
+            ast.root.pretty_print(&ast.ophan_nodes, &ast.node_lists);
+        }
+
+        var vm_blocks = try Compiler.compile(allocator, &ast);
+        if (debug_config.dump_blocks) {
+            var i: usize = 0;
+            std.debug.print("\n---------- VM Blocks ----------\n", .{});
+            for (vm_blocks.items) |block| {
+                vm.print_block(block, i);
+                i += 1;
+            }
+        }
+
         return .{
             .allocator = allocator,
-            .compiled = try Compiled.init(allocator, regular_expression, debug_config),
+            .vm_blocks = vm_blocks,
             .debug_config = debug_config,
         };
     }
 
     pub fn match(self: *Self, input: []const u8) !?MatchObject {
-        var vm_instance = VMInstance.init(self.allocator, &self.compiled.blocks, input, self.debug_config);
+        var vm_instance = VMInstance.init(self.allocator, &self.vm_blocks, input, self.debug_config);
         defer vm_instance.deinit();
         const matched = try vm_instance.run();
 
@@ -65,6 +90,6 @@ pub const Regex = struct {
     }
 
     pub fn deinit(self: *Self) void {
-        self.compiled.deinit();
+        compiler.blocks_deinit(self.vm_blocks);
     }
 };
