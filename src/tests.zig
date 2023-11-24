@@ -136,3 +136,12 @@ test "[^abc]" {
     try test_fully_matching_string("[^abc]", "d", &.{});
     try test_fully_matching_string("[^abc]", "$", &.{});
 }
+
+test "a\\sb$" {
+    try test_fully_matching_string("a\\sb$", "a b", &.{});
+    try test_non_matching_string("a\\sb$", "a.b");
+}
+
+test "a\\sb\\s*c\\s+d$" {
+    try test_fully_matching_string("a\\sb\\s?c\\s+d$", "a b\tc\r\x0c\n\n   d", &.{});
+}

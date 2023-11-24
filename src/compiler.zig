@@ -33,6 +33,7 @@ const ASTNodeType = enum {
     literal,
     digit,
     wildcard,
+    whitespace,
     list,
     range,
     alternation,
@@ -54,6 +55,7 @@ const ASTNode = union(ASTNodeType) {
     regex: usize,
     literal: u8,
     digit: u8,
+    whitespace: u8,
     list: List,
     range: Range,
     wildcard: u8,
@@ -100,6 +102,10 @@ const ASTNode = union(ASTNodeType) {
             ASTNodeType.digit => {
                 indent_str(indent);
                 std.debug.print("digit({c})\n", .{self.digit});
+            },
+            ASTNodeType.whitespace => {
+                indent_str(indent);
+                std.debug.print("whitespace\n", .{});
             },
             ASTNodeType.wildcard => {
                 indent_str(indent);
@@ -394,10 +400,10 @@ pub const Compiled = struct {
             },
             .escaped => {
                 var node: ASTNode = undefined;
-                if (token.value == 'd') {
-                    node = ASTNode{ .digit = 0 };
-                } else {
-                    node = ASTNode{ .literal = token.value };
+                switch (token.value) {
+                    'd' => node = ASTNode{ .digit = 0 },
+                    's' => node = ASTNode{ .whitespace = 0 },
+                    else => node = ASTNode{ .literal = token.value },
                 }
 
                 if (current_state.in_list) {
@@ -619,6 +625,10 @@ pub const Compiled = struct {
             },
             ASTNodeType.digit => {
                 try self.blocks.items[current_block_index].append(.{ .range = .{ .a = '0', .b = '9' } });
+                return current_block_index;
+            },
+            ASTNodeType.whitespace => {
+                try self.blocks.items[current_block_index].append(.{ .whitespace = 0 });
                 return current_block_index;
             },
             ASTNodeType.wildcard => {

@@ -1,7 +1,7 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 
-pub const OpType = enum { char, wildcard, range, jump, split, end, end_of_input, start_capture, end_capture, deadend_marker, deadend };
+pub const OpType = enum { char, wildcard, whitespace, range, jump, split, end, end_of_input, start_capture, end_capture, deadend_marker, deadend };
 
 var op_count: usize = 0;
 
@@ -9,6 +9,7 @@ const Op = union(OpType) {
     // Content based
     char: u8,
     wildcard: u8,
+    whitespace: u8,
     range: struct { a: u8, b: u8 },
 
     // Capture based
@@ -27,6 +28,7 @@ const Op = union(OpType) {
         switch (self.*) {
             OpType.char => std.debug.print("{d}: B{d}.{d}: char({c})         \"{s}\"\n", .{ op_count, block_index, pc, self.char, match }),
             OpType.wildcard => std.debug.print("{d}: B{d}.{d}: wildcard        \"{s}\"\n", .{ op_count, block_index, pc, match }),
+            OpType.whitespace => std.debug.print("{d}: B{d}.{d}: whitespace        \"{s}\"\n", .{ op_count, block_index, pc, match }),
             OpType.range => std.debug.print("{d}: B{d}.{d}: range({c}, {c})     \"{s}\"\n", .{ op_count, block_index, pc, self.range.a, self.range.b, match }),
             OpType.split => std.debug.print("{d}: B{d}.{d}: split({d}, {d})     \"{s}\"\n", .{ op_count, block_index, pc, self.split.a, self.split.b, match }),
             OpType.jump => std.debug.print("{d}: B{d}.{d}: jump({d})         \"{s}\"\n", .{ op_count, block_index, pc, self.jump, match }),
@@ -53,6 +55,7 @@ pub fn print_block(block: Block, index: usize) void {
         switch (instruction) {
             OpType.char => std.debug.print("  char({c})\n", .{instruction.char}),
             OpType.wildcard => std.debug.print("  wildcard\n", .{}),
+            OpType.whitespace => std.debug.print("  whitespace\n", .{}),
             OpType.split => std.debug.print("  split({d}, {d})\n", .{ instruction.split.a, instruction.split.b }),
             OpType.range => std.debug.print("  range({c}, {c})\n", .{ instruction.range.a, instruction.range.b }),
             OpType.jump => std.debug.print("  jump({d})\n", .{instruction.jump}),
@@ -202,6 +205,34 @@ pub const VMInstance = struct {
                     .char => {
                         if (!self.is_end_of_input()) {
                             if (self.input_str[self.state.index] == op.char) {
+                                self.state.index += 1;
+                                self.state.pc += 1;
+                                continue;
+                            } else {
+                                if (try self.unwind()) {
+                                    continue;
+                                }
+                                done = true;
+                            }
+                        } else {
+                            if (try self.unwind()) {
+                                continue;
+                            }
+                            done = true;
+                        }
+                    },
+                    .whitespace => {
+                        if (!self.is_end_of_input()) {
+                            const match = switch (self.input_str[self.state.index]) {
+                                ' ' => true,
+                                '\t' => true,
+                                '\n' => true,
+                                '\r' => true,
+                                0x0c => true, // \f
+                                else => false,
+                            };
+
+                            if (match) {
                                 self.state.index += 1;
                                 self.state.pc += 1;
                                 continue;
