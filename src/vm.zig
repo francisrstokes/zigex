@@ -75,6 +75,11 @@ pub fn print_block(block: Block, index: usize) void {
     std.debug.print("\n", .{});
 }
 
+pub const GroupCapture = struct {
+    index: usize,
+    value: []const u8,
+};
+
 const ThreadState = struct {
     const Self = @This();
 
@@ -83,7 +88,7 @@ const ThreadState = struct {
     index: usize,
     next_split: ?usize,
     capture_stack: std.ArrayList(usize),
-    captures: std.AutoHashMap(usize, []const u8),
+    captures: std.AutoHashMap(usize, GroupCapture),
 
     pub fn clone(self: *Self) !ThreadState {
         return .{
@@ -118,7 +123,7 @@ pub const VMInstance = struct {
     pub fn init(allocator: Allocator, blocks: *std.ArrayList(Block), input_str: []const u8, config: DebugConfig) Self {
         return .{
             .blocks = blocks,
-            .state = .{ .block_index = 0, .pc = 0, .index = 0, .next_split = null, .captures = std.AutoHashMap(usize, []const u8).init(allocator), .capture_stack = std.ArrayList(usize).init(allocator) },
+            .state = .{ .block_index = 0, .pc = 0, .index = 0, .next_split = null, .captures = std.AutoHashMap(usize, GroupCapture).init(allocator), .capture_stack = std.ArrayList(usize).init(allocator) },
             .stack = std.ArrayList(ThreadState).init(allocator),
             .input_str = input_str,
             .allocator = allocator,
@@ -325,7 +330,7 @@ pub const VMInstance = struct {
                     .end_capture => {
                         const start = self.state.capture_stack.pop();
                         const end = self.state.index;
-                        try self.state.captures.put(op.end_capture, self.input_str[start..end]);
+                        try self.state.captures.put(op.end_capture, .{ .index = start, .value = self.input_str[start..end] });
                         self.state.pc += 1;
                         continue;
                     },

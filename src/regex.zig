@@ -6,6 +6,7 @@ const Parser = @import("compiler/parser.zig").Parser;
 const compiler = @import("compiler/compiler.zig");
 const Compiler = compiler.Compiler;
 const vm = @import("vm.zig");
+const GroupCapture = vm.GroupCapture;
 const VMInstance = vm.VMInstance;
 const DebugConfig = @import("debug-config.zig").DebugConfig;
 
@@ -13,14 +14,14 @@ pub const MatchObject = struct {
     const Self = @This();
 
     num_groups: usize,
-    groups: std.AutoHashMap(usize, []const u8),
+    groups: std.AutoHashMap(usize, GroupCapture),
     match: []const u8,
 
     pub fn get_match(self: *Self) []const u8 {
         return self.match;
     }
 
-    pub fn get_group(self: *Self, group: usize) !?[]const u8 {
+    pub fn get_group(self: *Self, group: usize) !?GroupCapture {
         // Groups are actually 1-indexed, but we store them as 0-indexed.
         if (group == 0) {
             return null;
@@ -28,8 +29,8 @@ pub const MatchObject = struct {
         return self.groups.get(group - 1);
     }
 
-    pub fn get_groups(self: *Self, allocator: Allocator) !std.ArrayList(?[]const u8) {
-        var array = std.ArrayList(?[]const u8).init(allocator);
+    pub fn get_groups(self: *Self, allocator: Allocator) !std.ArrayList(?GroupCapture) {
+        var array = std.ArrayList(?GroupCapture).init(allocator);
         for (0..self.num_groups) |i| {
             try array.append(self.groups.get(i));
         }

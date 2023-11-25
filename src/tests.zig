@@ -28,7 +28,7 @@ fn test_fully_matching_string(comptime re_str: []const u8, comptime input: []con
 
         if (!capture_null) {
             const capture_str = captures[i].?;
-            const group_str = groups.items[i].?;
+            const group_str = groups.items[i].?.value;
             const strings_equal = std.mem.eql(u8, capture_str, group_str);
             _ = try expect(strings_equal);
         }
@@ -57,11 +57,29 @@ test "1-Indexed groups" {
     var match = (try re.match(input)).?;
     defer match.deinit();
 
-    const group1 = (try match.get_group(1)).?;
-    const group2 = (try match.get_group(2)).?;
+    const group1 = (try match.get_group(1)).?.value;
+    const group2 = (try match.get_group(2)).?.value;
 
     try expect(std.mem.eql(u8, group1, "ab"));
     try expect(std.mem.eql(u8, group2, "a"));
+}
+
+test "Group capture index information" {
+    const allocator = std.testing.allocator;
+
+    const re_str = "\\d+(...)";
+    const input = "12345abc";
+
+    var re = try Regex.init(allocator, re_str, .{});
+    defer re.deinit();
+
+    var match = (try re.match(input)).?;
+    defer match.deinit();
+
+    const group = (try match.get_group(1)).?;
+
+    try expect(std.mem.eql(u8, group.value, "abc"));
+    try expect(group.index == 5);
 }
 
 test "a" {

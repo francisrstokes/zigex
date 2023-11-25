@@ -40,7 +40,7 @@ pub fn main() !void {
 
     for (groups.items, 0..) |group, i| {
         if (group) |g| {
-            std.debug.print("Group {d}: {s}\n", .{ i, g });
+            std.debug.print("Group {d}: \"{s}\" index={d}\n", .{ i, g.value, g.index });
         } else {
             std.debug.print("Group {d}: <null>\n", .{i});
         }
