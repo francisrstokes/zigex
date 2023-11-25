@@ -7,7 +7,7 @@ const Regex = @import("regex.zig").Regex;
 fn test_fully_matching_string(comptime re_str: []const u8, comptime input: []const u8, captures: []const ?[]const u8) !void {
     const allocator = std.testing.allocator;
 
-    var re = try Regex.init(allocator, re_str);
+    var re = try Regex.init(allocator, re_str, .{});
     defer re.deinit();
 
     var match = try re.match(input);
@@ -38,7 +38,7 @@ fn test_fully_matching_string(comptime re_str: []const u8, comptime input: []con
 fn test_non_matching_string(comptime re_str: []const u8, comptime input: []const u8) !void {
     const allocator = std.testing.allocator;
 
-    var re = try Regex.init(allocator, re_str);
+    var re = try Regex.init(allocator, re_str, .{});
     defer re.deinit();
 
     var match = try re.match(input);
@@ -51,7 +51,7 @@ test "1-Indexed groups" {
     const re_str = "((a)(.))c";
     const input = "abc";
 
-    var re = try Regex.init(allocator, re_str);
+    var re = try Regex.init(allocator, re_str, .{});
     defer re.deinit();
 
     var match = (try re.match(input)).?;

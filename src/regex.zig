@@ -3,6 +3,7 @@ const Allocator = std.mem.Allocator;
 
 const Compiled = @import("compiler.zig").Compiled;
 const VMInstance = @import("vm.zig").VMInstance;
+const DebugConfig = @import("debug-config.zig").DebugConfig;
 
 pub const MatchObject = struct {
     const Self = @This();
@@ -41,16 +42,18 @@ pub const Regex = struct {
 
     allocator: Allocator,
     compiled: Compiled,
+    debug_config: DebugConfig,
 
-    pub fn init(allocator: Allocator, regular_expression: []const u8) !Self {
+    pub fn init(allocator: Allocator, regular_expression: []const u8, debug_config: DebugConfig) !Self {
         return .{
             .allocator = allocator,
-            .compiled = try Compiled.init(allocator, regular_expression, .{}),
+            .compiled = try Compiled.init(allocator, regular_expression, debug_config),
+            .debug_config = debug_config,
         };
     }
 
     pub fn match(self: *Self, input: []const u8) !?MatchObject {
-        var vm_instance = VMInstance.init(self.allocator, &self.compiled.blocks, input, .{});
+        var vm_instance = VMInstance.init(self.allocator, &self.compiled.blocks, input, self.debug_config);
         defer vm_instance.deinit();
         const matched = try vm_instance.run();
 

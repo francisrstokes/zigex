@@ -3,6 +3,7 @@ const Allocator = std.mem.Allocator;
 const expect = std.testing.expect;
 
 const vm = @import("vm.zig");
+const DebugConfig = @import("debug-config.zig").DebugConfig;
 
 const TokenType = enum { literal, escaped, wildcard, lparen, rparen, alternation, zero_or_one, zero_or_more, one_or_more, lsquare, rsquare, dollar, caret, dash };
 
@@ -254,18 +255,13 @@ pub const Compiled = struct {
     };
     const RegexError = error{ParseError};
 
-    const RegexConfig = struct {
-        dump_ast: bool = false,
-        dump_blocks: bool = false,
-    };
-
     re: []const u8,
     allocator: Allocator,
-    config: RegexConfig,
+    config: DebugConfig,
     blocks: std.ArrayList(vm.Block),
     group_index: usize,
 
-    pub fn init(allocator: Allocator, re: []const u8, config: RegexConfig) !Self {
+    pub fn init(allocator: Allocator, re: []const u8, config: DebugConfig) !Self {
         var regex = Self{ .re = re, .allocator = allocator, .config = config, .blocks = std.ArrayList(vm.Block).init(allocator), .group_index = 0 };
 
         var arena = std.heap.ArenaAllocator.init(allocator);

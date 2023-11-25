@@ -2,6 +2,7 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 
 const Regex = @import("regex.zig").Regex;
+const DebugConfig = @import("debug-config.zig").DebugConfig;
 
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
@@ -22,7 +23,8 @@ pub fn main() !void {
     const re_str = args[1];
     const input = args[2];
 
-    var re = try Regex.init(allocator, re_str);
+    const debug_config = DebugConfig{ .dump_ast = true, .dump_blocks = true, .log_execution = true };
+    var re = try Regex.init(allocator, re_str, debug_config);
     defer re.deinit();
 
     var match = try re.match(input) orelse {

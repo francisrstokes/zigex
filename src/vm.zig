@@ -1,6 +1,8 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 
+const DebugConfig = @import("debug-config.zig").DebugConfig;
+
 pub const OpType = enum { char, wildcard, whitespace, range, jump, split, end, end_of_input, start_capture, end_capture, deadend_marker, deadend };
 
 var op_count: usize = 0;
@@ -100,18 +102,16 @@ const ThreadState = struct {
 pub const VMInstance = struct {
     const Self = @This();
 
-    const Config = struct { log: bool = false };
-
     blocks: *std.ArrayList(Block),
     state: ThreadState,
     stack: std.ArrayList(ThreadState),
     input_str: []const u8,
     allocator: Allocator,
     deadend_marker: usize = 0,
-    config: Config,
+    config: DebugConfig,
     num_groups: usize = 0,
 
-    pub fn init(allocator: Allocator, blocks: *std.ArrayList(Block), input_str: []const u8, config: Config) Self {
+    pub fn init(allocator: Allocator, blocks: *std.ArrayList(Block), input_str: []const u8, config: DebugConfig) Self {
         return .{
             .blocks = blocks,
             .state = .{ .block_index = 0, .pc = 0, .index = 0, .next_split = null, .captures = std.AutoHashMap(usize, []const u8).init(allocator), .capture_stack = std.ArrayList(usize).init(allocator) },
@@ -132,7 +132,7 @@ pub const VMInstance = struct {
     }
 
     fn log(self: *Self, comptime fmt: []const u8, args: anytype) void {
-        if (self.config.log) {
+        if (self.config.log_execution) {
             std.debug.print(fmt, args);
         }
     }
@@ -197,7 +197,7 @@ pub const VMInstance = struct {
             if (self.state.pc < block.items.len) {
                 var op = block.items[self.state.pc];
 
-                if (self.config.log) {
+                if (self.config.log_execution) {
                     op.print(self.state.block_index, self.state.pc, self.get_match());
                 }
 
