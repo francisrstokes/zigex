@@ -3,7 +3,7 @@ const Allocator = std.mem.Allocator;
 
 const DebugConfig = @import("debug-config.zig").DebugConfig;
 
-pub const OpType = enum { char, wildcard, whitespace, range, jump, split, end, end_of_input, start_capture, end_capture, deadend_marker, deadend };
+pub const OpType = enum { char, wildcard, whitespace, range, jump, split, end, end_of_input, start_capture, end_capture, deadend_marker, deadend, progress };
 
 var op_count: usize = 0;
 
@@ -22,6 +22,7 @@ const Op = union(OpType) {
     jump: usize,
     split: struct { a: usize, b: usize },
     end: u8,
+    progress: usize,
     end_of_input: u8,
     deadend: u8,
     deadend_marker: u8,
@@ -35,6 +36,7 @@ const Op = union(OpType) {
             OpType.split => std.debug.print("{d}: B{d}.{d}: split({d}, {d})     \"{s}\"\n", .{ op_count, block_index, pc, self.split.a, self.split.b, match }),
             OpType.jump => std.debug.print("{d}: B{d}.{d}: jump({d})         \"{s}\"\n", .{ op_count, block_index, pc, self.jump, match }),
             OpType.start_capture => std.debug.print("{d}: B{d}.{d}: start_capture({d}) \"{s}\"\n", .{ op_count, block_index, pc, self.start_capture, match }),
+            OpType.progress => std.debug.print("{d}: B{d}.{d}: progress({d})  \"{s}\"\n", .{ op_count, block_index, pc, self.progress, match }),
             OpType.end_capture => std.debug.print("{d}: B{d}.{d}: end_capture({d})  \"{s}\"\n", .{ op_count, block_index, pc, self.end_capture, match }),
             OpType.end => std.debug.print("{d}: B{d}.{d}: end             \"{s}\"\n", .{ op_count, block_index, pc, match }),
             OpType.end_of_input => std.debug.print("{d}: B{d}.{d}: end_of_input    \"{s}\"\n", .{ op_count, block_index, pc, match }),
@@ -61,6 +63,7 @@ pub fn print_block(block: Block, index: usize) void {
             OpType.split => std.debug.print("  split({d}, {d})\n", .{ instruction.split.a, instruction.split.b }),
             OpType.range => std.debug.print("  range({c}, {c})\n", .{ instruction.range.a, instruction.range.b }),
             OpType.jump => std.debug.print("  jump({d})\n", .{instruction.jump}),
+            OpType.progress => std.debug.print("  progress({d})\n", .{instruction.progress}),
             OpType.end => std.debug.print("  end\n", .{}),
             OpType.end_of_input => std.debug.print("  end_of_input\n", .{}),
             OpType.start_capture => std.debug.print("  start_capture({d})\n", .{instruction.start_capture}),
@@ -110,6 +113,7 @@ pub const VMInstance = struct {
     deadend_marker: usize = 0,
     config: DebugConfig,
     num_groups: usize = 0,
+    progress: std.AutoHashMap(usize, ?usize),
 
     pub fn init(allocator: Allocator, blocks: *std.ArrayList(Block), input_str: []const u8, config: DebugConfig) Self {
         return .{
@@ -119,6 +123,7 @@ pub const VMInstance = struct {
             .input_str = input_str,
             .allocator = allocator,
             .config = config,
+            .progress = std.AutoHashMap(usize, ?usize).init(allocator),
         };
     }
 
@@ -129,6 +134,7 @@ pub const VMInstance = struct {
         }
         self.stack.deinit();
         self.state.deinit();
+        self.progress.deinit();
     }
 
     fn log(self: *Self, comptime fmt: []const u8, args: anytype) void {
@@ -340,6 +346,28 @@ pub const VMInstance = struct {
                             continue;
                         }
                         done = true;
+                    },
+                    .progress => {
+                        // The purpose of the progress instruction is to prevent infinite loops
+                        // that occur with patterns like (a*)*
+                        if (self.progress.get(op.progress)) |prev| {
+                            // Have we made progress since the last time we were here?
+                            if (prev == self.state.index) {
+                                if (try self.unwind()) {
+                                    continue;
+                                }
+                                done = true;
+                            } else {
+                                // Keep moving forward
+                                try self.progress.put(op.progress, self.state.index);
+                                self.state.pc += 1;
+                            }
+                        } else {
+                            // This is the first time we have been here, record the progress and keep moving forward
+                            try self.progress.put(op.progress, self.state.index);
+                            self.state.pc += 1;
+                        }
+                        continue;
                     },
                     // else => @panic("Unknown op type"),
                 }

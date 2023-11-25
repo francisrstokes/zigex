@@ -19,6 +19,7 @@ pub const Compiler = struct {
 
     allocator: Allocator,
     blocks: std.ArrayList(vm.Block),
+    progress_index: usize = 0,
 
     fn compile_node(self: *Self, parsed: *ParsedRegex, node: ASTNode, current_block_index: usize) !usize {
         switch (node) {
@@ -264,7 +265,9 @@ pub const Compiler = struct {
                 try self.blocks.items[new_content_block_index].append(.{ .jump = quantification_block_index });
 
                 // Quantification block
+                try self.blocks.items[quantification_block_index].append(.{ .progress = self.progress_index });
                 try self.blocks.items[quantification_block_index].append(.{ .split = .{ .a = content_block_index, .b = next_block_index } });
+                self.progress_index += 1;
 
                 return next_block_index;
             },

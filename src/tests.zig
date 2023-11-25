@@ -159,3 +159,9 @@ test "\\xz$" {
     const input: [2]u8 = .{ 0, 'z' };
     try test_fully_matching_string("\\xz$", &input, &.{});
 }
+
+test "(a*)*" {
+    try test_fully_matching_string("(a*)*", "", &.{null});
+    try test_fully_matching_string("(a*)*", "a", &.{"a"});
+    try test_fully_matching_string("(a*)*", "aaaa", &.{"aaaa"});
+}
