@@ -5,7 +5,7 @@ const vm = @import("../vm.zig");
 
 const parser = @import("parser.zig");
 const ASTNode = @import("common.zig").ASTNode;
-const RegexAST = parser.RegexAST;
+const ParsedRegex = parser.ParsedRegex;
 
 pub fn blocks_deinit(blocks: std.ArrayList(vm.Block)) void {
     for (blocks.items) |block| {
@@ -20,12 +20,12 @@ pub const Compiler = struct {
     allocator: Allocator,
     blocks: std.ArrayList(vm.Block),
 
-    fn compile_node(self: *Self, ast: *RegexAST, node: ASTNode, current_block_index: usize) !usize {
+    fn compile_node(self: *Self, parsed: *ParsedRegex, node: ASTNode, current_block_index: usize) !usize {
         switch (node) {
             .regex => {
                 var block_index: usize = current_block_index;
-                for (ast.node_lists.items[node.regex].items) |child| {
-                    block_index = try self.compile_node(ast, child, block_index);
+                for (parsed.node_lists.items[node.regex].items) |child| {
+                    block_index = try self.compile_node(parsed, child, block_index);
                 }
                 try self.blocks.items[block_index].append(.{ .end = 0 });
                 return block_index;
@@ -46,8 +46,8 @@ pub const Compiler = struct {
 
                 // Actual content
                 var block_index: usize = content_block_index;
-                for (ast.node_lists.items[node.group.nodes].items) |child| {
-                    block_index = try self.compile_node(ast, child, block_index);
+                for (parsed.node_lists.items[node.group.nodes].items) |child| {
+                    block_index = try self.compile_node(parsed, child, block_index);
                 }
 
                 // Jump to the end of capture
@@ -92,16 +92,16 @@ pub const Compiler = struct {
                 try self.blocks.append(vm.Block.init(self.allocator));
                 const left_index = self.blocks.items.len - 1;
                 var final_left_index = left_index;
-                for (ast.node_lists.items[content.left].items) |child| {
-                    final_left_index = try self.compile_node(ast, child, final_left_index);
+                for (parsed.node_lists.items[content.left].items) |child| {
+                    final_left_index = try self.compile_node(parsed, child, final_left_index);
                 }
                 try self.blocks.items[final_left_index].append(.{ .jump = next_block_index });
 
                 try self.blocks.append(vm.Block.init(self.allocator));
                 const right_index = self.blocks.items.len - 1;
                 var final_right_index = right_index;
-                for (ast.node_lists.items[content.right].items) |child| {
-                    final_right_index = try self.compile_node(ast, child, final_right_index);
+                for (parsed.node_lists.items[content.right].items) |child| {
+                    final_right_index = try self.compile_node(parsed, child, final_right_index);
                 }
                 try self.blocks.items[final_right_index].append(.{ .jump = next_block_index });
 
@@ -112,7 +112,7 @@ pub const Compiler = struct {
             .list => {
                 var content = node.list;
 
-                if (ast.node_lists.items[content.nodes].items.len == 0) {
+                if (parsed.node_lists.items[content.nodes].items.len == 0) {
                     @panic("Can't generate blocks for empty list, fix in parser");
                 }
 
@@ -122,8 +122,8 @@ pub const Compiler = struct {
                 if (!content.negative) {
                     // Trivial case where we only have a single node in the list.
                     // Generate a block for that node, and add a jump to the next block.
-                    if (ast.node_lists.items[content.nodes].items.len == 1) {
-                        var final_block_index = try self.compile_node(ast, ast.node_lists.items[content.nodes].items[0], current_block_index);
+                    if (parsed.node_lists.items[content.nodes].items.len == 1) {
+                        var final_block_index = try self.compile_node(parsed, parsed.node_lists.items[content.nodes].items[0], current_block_index);
                         try self.blocks.items[final_block_index].append(.{ .jump = next_block_index });
                         return next_block_index;
                     }
@@ -134,18 +134,18 @@ pub const Compiler = struct {
 
                     try self.blocks.items[current_block_index].append(.{ .jump = split_block_index });
 
-                    for (0..ast.node_lists.items[content.nodes].items.len - 1) |i| {
+                    for (0..parsed.node_lists.items[content.nodes].items.len - 1) |i| {
                         // Create a block for the content node, compile it, and add a jump to the next block.
                         try self.blocks.append(vm.Block.init(self.allocator));
                         var block_index = self.blocks.items.len - 1;
-                        var final_block_index = try self.compile_node(ast, ast.node_lists.items[content.nodes].items[i], block_index);
+                        var final_block_index = try self.compile_node(parsed, parsed.node_lists.items[content.nodes].items[i], block_index);
                         try self.blocks.items[final_block_index].append(.{ .jump = next_block_index });
 
                         // If this is the last node in the list, the split should direct to the next element in the list, not a new split
-                        if (i == ast.node_lists.items[content.nodes].items.len - 2) {
+                        if (i == parsed.node_lists.items[content.nodes].items.len - 2) {
                             try self.blocks.append(vm.Block.init(self.allocator));
                             var last_block_index = self.blocks.items.len - 1;
-                            var final_last_block_index = try self.compile_node(ast, ast.node_lists.items[content.nodes].items[i + 1], last_block_index);
+                            var final_last_block_index = try self.compile_node(parsed, parsed.node_lists.items[content.nodes].items[i + 1], last_block_index);
                             try self.blocks.items[final_last_block_index].append(.{ .jump = next_block_index });
 
                             try self.blocks.items[split_block_index].append(.{ .split = .{ .a = block_index, .b = last_block_index } });
@@ -168,16 +168,16 @@ pub const Compiler = struct {
                     try self.blocks.items[current_block_index].append(.{ .deadend_marker = 0 });
                     try self.blocks.items[current_block_index].append(.{ .jump = split_block_index });
 
-                    for (0..ast.node_lists.items[content.nodes].items.len) |i| {
+                    for (0..parsed.node_lists.items[content.nodes].items.len) |i| {
                         // Create a block for the content node, compile it, and add a deadend after.
                         try self.blocks.append(vm.Block.init(self.allocator));
                         var block_index = self.blocks.items.len - 1;
-                        var final_block_index = try self.compile_node(ast, ast.node_lists.items[content.nodes].items[i], block_index);
+                        var final_block_index = try self.compile_node(parsed, parsed.node_lists.items[content.nodes].items[i], block_index);
                         try self.blocks.items[final_block_index].append(.{ .deadend = 0 });
 
                         const split_block_len = self.blocks.items[split_block_index].items.len;
                         // If this is the last node in the list, the split should direct to the next_block_index
-                        if (i == ast.node_lists.items[content.nodes].items.len - 1) {
+                        if (i == parsed.node_lists.items[content.nodes].items.len - 1) {
                             self.blocks.items[split_block_index].items[split_block_len - 1].split.a = block_index;
                             self.blocks.items[split_block_index].items[split_block_len - 1].split.b = next_block_index;
                         } else {
@@ -198,11 +198,11 @@ pub const Compiler = struct {
                 return next_block_index;
             },
             .one_or_more => {
-                var content = ast.ophan_nodes.items[node.one_or_more];
+                var content = parsed.ophan_nodes.items[node.one_or_more];
 
                 try self.blocks.append(vm.Block.init(self.allocator));
                 const content_block_index = self.blocks.items.len - 1;
-                const new_block_index = try self.compile_node(ast, content, content_block_index);
+                const new_block_index = try self.compile_node(parsed, content, content_block_index);
 
                 try self.blocks.items[current_block_index].append(.{ .jump = content_block_index });
 
@@ -221,7 +221,7 @@ pub const Compiler = struct {
                 return next_block_index;
             },
             .zero_or_one => {
-                var content = ast.ophan_nodes.items[node.zero_or_one];
+                var content = parsed.ophan_nodes.items[node.zero_or_one];
 
                 try self.blocks.append(vm.Block.init(self.allocator));
                 const quantification_block_index = self.blocks.items.len - 1;
@@ -239,13 +239,13 @@ pub const Compiler = struct {
                 try self.blocks.items[quantification_block_index].append(.{ .split = .{ .a = content_block_index, .b = next_block_index } });
 
                 // The content block has the content itself
-                const final_content_index = try self.compile_node(ast, content, content_block_index);
+                const final_content_index = try self.compile_node(parsed, content, content_block_index);
                 try self.blocks.items[final_content_index].append(.{ .jump = next_block_index });
 
                 return next_block_index;
             },
             .zero_or_more => {
-                var content = ast.ophan_nodes.items[node.zero_or_more];
+                var content = parsed.ophan_nodes.items[node.zero_or_more];
 
                 try self.blocks.append(vm.Block.init(self.allocator));
                 const quantification_block_index = self.blocks.items.len - 1;
@@ -260,7 +260,7 @@ pub const Compiler = struct {
                 try self.blocks.items[current_block_index].append(.{ .jump = quantification_block_index });
 
                 // Content block
-                const new_content_block_index = try self.compile_node(ast, content, content_block_index);
+                const new_content_block_index = try self.compile_node(parsed, content, content_block_index);
                 try self.blocks.items[new_content_block_index].append(.{ .jump = quantification_block_index });
 
                 // Quantification block
@@ -272,10 +272,10 @@ pub const Compiler = struct {
         }
     }
 
-    pub fn compile(allocator: Allocator, ast: *RegexAST) !std.ArrayList(vm.Block) {
+    pub fn compile(allocator: Allocator, parsed: *ParsedRegex) !std.ArrayList(vm.Block) {
         var self = Self{ .allocator = allocator, .blocks = std.ArrayList(vm.Block).init(allocator) };
         try self.blocks.append(vm.Block.init(self.allocator));
-        _ = try self.compile_node(ast, ast.root, 0);
+        _ = try self.compile_node(parsed, parsed.ast, 0);
         return self.blocks;
     }
 };

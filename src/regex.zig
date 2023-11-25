@@ -54,13 +54,13 @@ pub const Regex = struct {
         var arena_allocator = arena.allocator();
 
         var token_stream = try Tokeniser.tokenise(arena_allocator, regular_expression);
-        var ast = try Parser.parse(arena_allocator, &token_stream);
+        var parsed = try Parser.parse(arena_allocator, &token_stream);
         if (debug_config.dump_ast) {
             std.debug.print("\n------------- AST -------------\n", .{});
-            ast.root.pretty_print(&ast.ophan_nodes, &ast.node_lists);
+            parsed.ast.pretty_print(&parsed.ophan_nodes, &parsed.node_lists);
         }
 
-        var vm_blocks = try Compiler.compile(allocator, &ast);
+        var vm_blocks = try Compiler.compile(allocator, &parsed);
         if (debug_config.dump_blocks) {
             var i: usize = 0;
             std.debug.print("\n---------- VM Blocks ----------\n", .{});

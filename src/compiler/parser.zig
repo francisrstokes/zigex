@@ -10,10 +10,10 @@ const Token = tokeniser.Token;
 
 const NodeLists = std.ArrayList(std.ArrayList(ASTNode));
 
-pub const RegexAST = struct {
+pub const ParsedRegex = struct {
     const Self = @This();
 
-    root: ASTNode,
+    ast: ASTNode,
     node_lists: NodeLists,
     ophan_nodes: std.ArrayList(ASTNode),
 
@@ -339,7 +339,7 @@ pub const Parser = struct {
         }
     }
 
-    pub fn parse(allocator: Allocator, tokens: *TokenStream) !RegexAST {
+    pub fn parse(allocator: Allocator, tokens: *TokenStream) !ParsedRegex {
         var self = Self{ .group_index = 0 };
 
         // We need a home for nodes that are pointed to by other nodes. When we come to deinit the
@@ -360,7 +360,7 @@ pub const Parser = struct {
             try self.parse_node(token, &current_state, tokens, &ophan_nodes, &node_lists, &state_stack);
         }
 
-        return RegexAST{ .root = root_node, .ophan_nodes = ophan_nodes, .node_lists = node_lists };
+        return ParsedRegex{ .ast = root_node, .ophan_nodes = ophan_nodes, .node_lists = node_lists };
     }
 };
 
