@@ -33,7 +33,7 @@ pub fn main() !void {
     };
     defer match.deinit();
 
-    std.debug.print("Match: {s}\n", .{match.match});
+    std.debug.print("Match: \"{s}\" index={d}\n", .{ match.match.value, match.match.index });
 
     var groups = try match.get_groups(allocator);
     defer groups.deinit();

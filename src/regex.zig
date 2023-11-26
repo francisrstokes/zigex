@@ -6,7 +6,7 @@ const Parser = @import("compiler/parser.zig").Parser;
 const compiler = @import("compiler/compiler.zig");
 const Compiler = compiler.Compiler;
 const vm = @import("vm.zig");
-const GroupCapture = vm.GroupCapture;
+const StringMatch = vm.StringMatch;
 const VMInstance = vm.VMInstance;
 const DebugConfig = @import("debug-config.zig").DebugConfig;
 
@@ -14,14 +14,14 @@ pub const MatchObject = struct {
     const Self = @This();
 
     num_groups: usize,
-    groups: std.AutoHashMap(usize, GroupCapture),
-    match: []const u8,
+    groups: std.AutoHashMap(usize, StringMatch),
+    match: StringMatch,
 
-    pub fn get_match(self: *Self) []const u8 {
+    pub fn get_match(self: *Self) StringMatch {
         return self.match;
     }
 
-    pub fn get_group(self: *Self, group: usize) !?GroupCapture {
+    pub fn get_group(self: *Self, group: usize) !?StringMatch {
         // Groups are actually 1-indexed, but we store them as 0-indexed.
         if (group == 0) {
             return null;
@@ -29,8 +29,8 @@ pub const MatchObject = struct {
         return self.groups.get(group - 1);
     }
 
-    pub fn get_groups(self: *Self, allocator: Allocator) !std.ArrayList(?GroupCapture) {
-        var array = std.ArrayList(?GroupCapture).init(allocator);
+    pub fn get_groups(self: *Self, allocator: Allocator) !std.ArrayList(?StringMatch) {
+        var array = std.ArrayList(?StringMatch).init(allocator);
         for (0..self.num_groups) |i| {
             try array.append(self.groups.get(i));
         }
@@ -87,7 +87,8 @@ pub const Regex = struct {
             return null;
         }
 
-        return MatchObject{ .num_groups = vm_instance.num_groups, .groups = vm_instance.state.captures.move(), .match = vm_instance.get_match() };
+        const match_string = StringMatch{ .index = vm_instance.match_from_index, .value = vm_instance.get_match() };
+        return MatchObject{ .num_groups = vm_instance.num_groups, .groups = vm_instance.state.captures.move(), .match = match_string };
     }
 
     pub fn deinit(self: *Self) void {

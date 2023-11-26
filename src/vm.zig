@@ -75,7 +75,7 @@ pub fn print_block(block: Block, index: usize) void {
     std.debug.print("\n", .{});
 }
 
-pub const GroupCapture = struct {
+pub const StringMatch = struct {
     index: usize,
     value: []const u8,
 };
@@ -88,7 +88,7 @@ const ThreadState = struct {
     index: usize,
     next_split: ?usize,
     capture_stack: std.ArrayList(usize),
-    captures: std.AutoHashMap(usize, GroupCapture),
+    captures: std.AutoHashMap(usize, StringMatch),
 
     pub fn clone(self: *Self) !ThreadState {
         return .{
@@ -118,12 +118,13 @@ pub const VMInstance = struct {
     deadend_marker: usize = 0,
     config: DebugConfig,
     num_groups: usize = 0,
+    match_from_index: usize = 0,
     progress: std.AutoHashMap(usize, ?usize),
 
     pub fn init(allocator: Allocator, blocks: *std.ArrayList(Block), input_str: []const u8, config: DebugConfig) Self {
         return .{
             .blocks = blocks,
-            .state = .{ .block_index = 0, .pc = 0, .index = 0, .next_split = null, .captures = std.AutoHashMap(usize, GroupCapture).init(allocator), .capture_stack = std.ArrayList(usize).init(allocator) },
+            .state = .{ .block_index = 0, .pc = 0, .index = 0, .next_split = null, .captures = std.AutoHashMap(usize, StringMatch).init(allocator), .capture_stack = std.ArrayList(usize).init(allocator) },
             .stack = std.ArrayList(ThreadState).init(allocator),
             .input_str = input_str,
             .allocator = allocator,
@@ -149,7 +150,7 @@ pub const VMInstance = struct {
     }
 
     pub fn get_match(self: *Self) []const u8 {
-        return self.input_str[0..self.state.index];
+        return self.input_str[self.match_from_index..self.state.index];
     }
 
     fn update_group_count(self: *Self, observed_group_index: usize) void {
@@ -168,6 +169,13 @@ pub const VMInstance = struct {
 
     fn unwind(self: *Self) !bool {
         if (self.stack.items.len == 0) {
+            if (self.match_from_index < self.input_str.len) {
+                self.match_from_index += 1;
+                self.state.deinit();
+                self.state = .{ .block_index = 0, .pc = 0, .index = self.match_from_index, .next_split = null, .captures = std.AutoHashMap(usize, StringMatch).init(self.allocator), .capture_stack = std.ArrayList(usize).init(self.allocator) };
+                self.log("  <~~ Restart matching from index {d}\n", .{self.match_from_index});
+                return true;
+            }
             return false;
         }
 

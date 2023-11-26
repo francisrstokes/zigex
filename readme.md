@@ -36,7 +36,7 @@ var match = try re.match("aHelloWorld1y") orelse {
 };
 defer match.deinit();
 
-std.debug.print("Match: {s}\n", .{match.match});
+std.debug.print("Match: \"{s}\" index={d}\n", .{match.match.value, match.match.index});
 
 var groups = try match.get_groups(your_allocator);
 defer groups.deinit();
