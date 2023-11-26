@@ -4,7 +4,7 @@ const expect = std.testing.expect;
 
 const Regex = @import("regex.zig").Regex;
 
-fn test_fully_matching_string(comptime re_str: []const u8, comptime input: []const u8, captures: []const ?[]const u8) !void {
+fn test_fully_matching_string(comptime re_str: []const u8, comptime input: []const u8, index: usize, captures: []const ?[]const u8) !void {
     const allocator = std.testing.allocator;
 
     var re = try Regex.init(allocator, re_str, .{});
@@ -14,7 +14,8 @@ fn test_fully_matching_string(comptime re_str: []const u8, comptime input: []con
     defer match.?.deinit();
 
     try expect(match != null);
-    try expect(std.mem.eql(u8, match.?.match, input));
+    try expect(std.mem.eql(u8, match.?.match.value, input));
+    try expect(index == match.?.match.index);
 
     var groups = try match.?.get_groups(allocator);
     defer groups.deinit();
@@ -35,7 +36,7 @@ fn test_fully_matching_string(comptime re_str: []const u8, comptime input: []con
     }
 }
 
-fn test_partially_matching_string(comptime re_str: []const u8, comptime input: []const u8, partial: []const u8, captures: []const ?[]const u8) !void {
+fn test_partially_matching_string(comptime re_str: []const u8, comptime input: []const u8, index: usize, partial: []const u8, captures: []const ?[]const u8) !void {
     const allocator = std.testing.allocator;
 
     var re = try Regex.init(allocator, re_str, .{});
@@ -45,7 +46,8 @@ fn test_partially_matching_string(comptime re_str: []const u8, comptime input: [
     defer match.?.deinit();
 
     try expect(match != null);
-    try expect(std.mem.eql(u8, match.?.match, partial));
+    try expect(std.mem.eql(u8, match.?.match.value, partial));
+    try expect(match.?.match.index == index);
 
     var groups = try match.?.get_groups(allocator);
     defer groups.deinit();
@@ -114,67 +116,67 @@ test "Group capture index information" {
 }
 
 test "a" {
-    try test_fully_matching_string("a", "a", &.{});
+    try test_fully_matching_string("a", "a", 0, &.{});
 }
 
 test "a+" {
-    try test_fully_matching_string("a+", "aaaaaaa", &.{});
+    try test_fully_matching_string("a+", "aaaaaaa", 0, &.{});
 }
 
 test ".+b" {
-    try test_fully_matching_string(".+b", "aaaaaaab", &.{});
+    try test_fully_matching_string(".+b", "aaaaaaab", 0, &.{});
 }
 
 test "a|b" {
-    try test_fully_matching_string("a|b", "a", &.{});
-    try test_fully_matching_string("a|b", "b", &.{});
+    try test_fully_matching_string("a|b", "a", 0, &.{});
+    try test_fully_matching_string("a|b", "b", 0, &.{});
 }
 
 test "(a|b)?c" {
-    try test_fully_matching_string("(a|b)?c", "ac", &.{"a"});
-    try test_fully_matching_string("(a|b)?c", "bc", &.{"b"});
-    try test_fully_matching_string("(a|b)?c", "c", &.{null});
+    try test_fully_matching_string("(a|b)?c", "ac", 0, &.{"a"});
+    try test_fully_matching_string("(a|b)?c", "bc", 0, &.{"b"});
+    try test_fully_matching_string("(a|b)?c", "c", 0, &.{null});
 }
 
 test ".+b|\\d" {
-    try test_fully_matching_string(".+b|\\d", "aaaaaaab", &.{});
-    try test_fully_matching_string(".+b|\\d", "1", &.{});
+    try test_fully_matching_string(".+b|\\d", "aaaaaaab", 0, &.{});
+    try test_fully_matching_string(".+b|\\d", "1", 0, &.{});
 }
 
 test ".+(b|\\d)" {
-    try test_fully_matching_string(".+(b|\\d)", "aaaaaaa5", &.{"5"});
+    try test_fully_matching_string(".+(b|\\d)", "aaaaaaa5", 0, &.{"5"});
 }
 
 test "((.).)" {
-    try test_fully_matching_string("((.).)", "ab", &.{ "ab", "a" });
+    try test_fully_matching_string("((.).)", "ab", 0, &.{ "ab", "a" });
 }
 
 test "((...)(...)+)" {
-    try test_fully_matching_string("((...)(...)+)", "abcdef123", &.{ "abcdef123", "abc", "123" });
+    try test_fully_matching_string("((...)(...)+)", "abcdef123", 0, &.{ "abcdef123", "abc", "123" });
 }
 
 test "[a]" {
-    try test_fully_matching_string("[a]", "a", &.{});
+    try test_fully_matching_string("[a]", "a", 0, &.{});
 }
 
 test "[abc]" {
-    try test_fully_matching_string("[abc]", "a", &.{});
-    try test_fully_matching_string("[abc]", "b", &.{});
-    try test_fully_matching_string("[abc]", "c", &.{});
+    try test_fully_matching_string("[abc]", "a", 0, &.{});
+    try test_fully_matching_string("[abc]", "b", 0, &.{});
+    try test_fully_matching_string("[abc]", "c", 0, &.{});
     try test_non_matching_string("[abc]", "d");
 }
 
 test "0x[0-9a-f]+$" {
-    try test_fully_matching_string("0x[0-9a-f]+$", "0xdeadbeef", &.{});
-    try test_fully_matching_string("0x[0-9a-f]+$", "0xc0decafe", &.{});
+    try test_fully_matching_string("0x[0-9a-f]+$", "0xdeadbeef", 0, &.{});
+    try test_fully_matching_string("0x[0-9a-f]+$", "0xc0decafe", 0, &.{});
     try test_non_matching_string("0x[0-9a-f]+$", "0xcodecafe");
 }
 
 test "[a-\\d]" {
-    try test_fully_matching_string("[a-\\d]", "a", &.{});
-    try test_fully_matching_string("[a-\\d]", "b", &.{});
-    try test_fully_matching_string("[a-\\d]", "c", &.{});
-    try test_fully_matching_string("[a-\\d]", "d", &.{});
+    try test_fully_matching_string("[a-\\d]", "a", 0, &.{});
+    try test_fully_matching_string("[a-\\d]", "b", 0, &.{});
+    try test_fully_matching_string("[a-\\d]", "c", 0, &.{});
+    try test_fully_matching_string("[a-\\d]", "d", 0, &.{});
     try test_non_matching_string("[a-\\d]", "e");
 }
 
@@ -182,63 +184,68 @@ test "[^abc]" {
     try test_non_matching_string("[^abc]", "a");
     try test_non_matching_string("[^abc]", "b");
     try test_non_matching_string("[^abc]", "c");
-    try test_fully_matching_string("[^abc]", "d", &.{});
-    try test_fully_matching_string("[^abc]", "$", &.{});
+    try test_fully_matching_string("[^abc]", "d", 0, &.{});
+    try test_fully_matching_string("[^abc]", "$", 0, &.{});
 }
 
 test "a\\sb$" {
-    try test_fully_matching_string("a\\sb$", "a b", &.{});
+    try test_fully_matching_string("a\\sb$", "a b", 0, &.{});
     try test_non_matching_string("a\\sb$", "a.b");
 }
 
 test "a\\sb\\s*c\\s+d$" {
-    try test_fully_matching_string("a\\sb\\s?c\\s+d$", "a b\tc\r\x0c\n\n   d", &.{});
+    try test_fully_matching_string("a\\sb\\s?c\\s+d$", "a b\tc\r\x0c\n\n   d", 0, &.{});
 }
 
 test "\\x40+" {
-    try test_fully_matching_string("\\x40+", "@@@@", &.{});
+    try test_fully_matching_string("\\x40+", "@@@@", 0, &.{});
 }
 
 test "\\xcz$" {
     const input: [2]u8 = .{ 0x0c, 'z' };
-    try test_fully_matching_string("\\xcz$", &input, &.{});
+    try test_fully_matching_string("\\xcz$", &input, 0, &.{});
 }
 
 test "\\xz$" {
     const input: [2]u8 = .{ 0, 'z' };
-    try test_fully_matching_string("\\xz$", &input, &.{});
+    try test_fully_matching_string("\\xz$", &input, 0, &.{});
 }
 
 test "(a*)*" {
-    try test_fully_matching_string("(a*)*", "", &.{null});
-    try test_fully_matching_string("(a*)*", "a", &.{"a"});
-    try test_fully_matching_string("(a*)*", "aaaa", &.{"aaaa"});
+    try test_fully_matching_string("(a*)*", "", 0, &.{null});
+    try test_fully_matching_string("(a*)*", "a", 0, &.{"a"});
+    try test_fully_matching_string("(a*)*", "aaaa", 0, &.{"aaaa"});
 }
 
 test "<(.+)>" {
-    try test_fully_matching_string("<(.+)>", "<html>xyz</html>", &.{"html>xyz</html"});
+    try test_fully_matching_string("<(.+)>", "<html>xyz</html>", 0, &.{"html>xyz</html"});
 }
 
 test "<(.+?)>" {
-    try test_partially_matching_string("<(.+?)>", "<html>xyz</html>", "<html>", &.{"html"});
+    try test_partially_matching_string("<(.+?)>", "<html>xyz</html>", 0, "<html>", &.{"html"});
 }
 
 test ".*a" {
-    try test_fully_matching_string(".*a", "bbbbbaa", &.{});
+    try test_fully_matching_string(".*a", "bbbbbaa", 0, &.{});
 }
 
 test ".*?a" {
-    try test_partially_matching_string(".*?a", "bbbbbaa", "bbbbba", &.{});
+    try test_partially_matching_string(".*?a", "bbbbbaa", 0, "bbbbba", &.{});
 }
 
 test "a?." {
-    try test_fully_matching_string("a?.", "ab", &.{});
-    try test_fully_matching_string("a?.", "a", &.{});
-    try test_fully_matching_string("a?.", "b", &.{});
+    try test_fully_matching_string("a?.", "ab", 0, &.{});
+    try test_fully_matching_string("a?.", "a", 0, &.{});
+    try test_fully_matching_string("a?.", "b", 0, &.{});
 }
 
 test ".??a" {
-    try test_partially_matching_string(".??a", "ab", "a", &.{});
-    try test_fully_matching_string("a??.", "a", &.{});
-    try test_fully_matching_string("a??.", "b", &.{});
+    try test_partially_matching_string(".??a", "ab", 0, "a", &.{});
+    try test_fully_matching_string("a??.", "a", 0, &.{});
+    try test_fully_matching_string("a??.", "b", 0, &.{});
+}
+
+test "abc" {
+    try test_fully_matching_string("abc", "abc", 0, &.{});
+    try test_partially_matching_string("abc", "xyzabc", 3, "abc", &.{});
 }
