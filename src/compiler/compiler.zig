@@ -194,7 +194,7 @@ pub const Compiler = struct {
             },
             .one_or_more => {
                 const quantifier = node.one_or_more;
-                var content = parsed.ophan_nodes.items[quantifier.node];
+                var content = parsed.orphan_nodes.items[quantifier.node];
 
                 const content_block_index = try self.create_block();
                 const new_block_index = try self.compile_node(parsed, content, content_block_index);
@@ -217,7 +217,7 @@ pub const Compiler = struct {
             },
             .zero_or_one => {
                 const quantifier = node.zero_or_one;
-                var content = parsed.ophan_nodes.items[quantifier.node];
+                var content = parsed.orphan_nodes.items[quantifier.node];
 
                 const quantification_block_index = try self.create_block();
                 const content_block_index = try self.create_block();
@@ -241,7 +241,7 @@ pub const Compiler = struct {
             },
             .zero_or_more => {
                 const quantifier = node.zero_or_more;
-                var content = parsed.ophan_nodes.items[quantifier.node];
+                var content = parsed.orphan_nodes.items[quantifier.node];
 
                 const quantification_block_index = try self.create_block();
                 const content_block_index = try self.create_block();

@@ -58,7 +58,7 @@ pub const Regex = struct {
         var parsed = try Parser.parse(arena_allocator, &token_stream);
         if (debug_config.dump_ast) {
             std.debug.print("\n------------- AST -------------\n", .{});
-            parsed.ast.pretty_print(&parsed.ophan_nodes, &parsed.node_lists);
+            parsed.ast.pretty_print(&parsed.orphan_nodes, &parsed.node_lists);
         }
 
         var vm_blocks = try Compiler.compile(allocator, &parsed);
