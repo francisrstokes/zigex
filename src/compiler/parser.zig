@@ -37,11 +37,11 @@ const ParseState = struct {
 
 const RegexError = error{ParseError};
 
-fn to_quantifier_node(token: Token, child_index: usize) !ASTNode {
+fn to_quantifier_node(token: Token, greedy: bool, child_index: usize) !ASTNode {
     switch (token.tok_type) {
-        .zero_or_one => return ASTNode{ .zero_or_one = child_index },
-        .zero_or_more => return ASTNode{ .zero_or_more = child_index },
-        .one_or_more => return ASTNode{ .one_or_more = child_index },
+        .zero_or_one => return ASTNode{ .zero_or_one = .{ .greedy = greedy, .node = child_index } },
+        .zero_or_more => return ASTNode{ .zero_or_more = .{ .greedy = greedy, .node = child_index } },
+        .one_or_more => return ASTNode{ .one_or_more = .{ .greedy = greedy, .node = child_index } },
         else => return error.Unreachable,
     }
 }
@@ -52,34 +52,43 @@ pub const Parser = struct {
     group_index: usize,
 
     fn maybe_parse_and_wrap_quantifier(node: ASTNode, tokens: *TokenStream, ophan_nodes: *std.ArrayList(ASTNode)) !?ASTNode {
-        if (tokens.available() > 0) {
-            const next_token = try tokens.peek(0);
+        if (tokens.peek(0)) |next_token| {
             if (next_token.is_quantifier()) {
+                var greedy = true;
+
+                if (tokens.peek(1)) |next_next_token| {
+                    greedy = next_next_token.tok_type != .zero_or_one;
+                }
+
                 const quantifier_token = try tokens.consume();
+                if (!greedy) {
+                    _ = try tokens.consume();
+                }
+
                 try ophan_nodes.append(node);
                 var child_index = ophan_nodes.items.len - 1;
 
-                return try to_quantifier_node(quantifier_token, child_index);
+                return try to_quantifier_node(quantifier_token, greedy, child_index);
             }
         }
         return null;
     }
 
     fn maybe_parse_rangenode(node: ASTNode, tokens: *TokenStream) !?ASTNode {
-        if (tokens.available() >= 2) {
-            const next_token = try tokens.peek(0);
-            const next_next_token = try tokens.peek(1);
-            if (next_token.tok_type == .dash) {
-                if (next_next_token.can_be_range_literal()) {
-                    _ = try tokens.consume();
-                    const range_token = try tokens.consume();
+        if (tokens.peek(0)) |next_token| {
+            if (tokens.peek(1)) |next_next_token| {
+                if (next_token.tok_type == .dash) {
+                    if (next_next_token.can_be_range_literal()) {
+                        _ = try tokens.consume();
+                        const range_token = try tokens.consume();
 
-                    if (range_token.value < node.literal) {
-                        std.debug.print("Invalid range: {c} to {c}\n", .{ node.literal, range_token.value });
-                        return error.ParseError;
+                        if (range_token.value < node.literal) {
+                            std.debug.print("Invalid range: {c} to {c}\n", .{ node.literal, range_token.value });
+                            return error.ParseError;
+                        }
+
+                        return ASTNode{ .range = .{ .a = node.literal, .b = range_token.value } };
                     }
-
-                    return ASTNode{ .range = .{ .a = node.literal, .b = range_token.value } };
                 }
             }
         }
@@ -87,25 +96,24 @@ pub const Parser = struct {
     }
 
     fn maybe_parse_hex_literal(tokens: *TokenStream) !?ASTNode {
-        if (tokens.available() >= 2) {
-            const next_token = try tokens.peek(0);
-            const next_next_token = try tokens.peek(1);
-            const both_literals = next_token.tok_type == .literal and next_next_token.tok_type == .literal;
-
-            if (both_literals) {
-                if (is_hex_char(next_token.value)) {
-                    _ = try tokens.consume();
-                    var hex_str: [2]u8 = .{ '0', '0' };
-                    if (is_hex_char(next_next_token.value)) {
+        if (tokens.peek(0)) |next_token| {
+            if (tokens.peek(1)) |next_next_token| {
+                const both_literals = next_token.tok_type == .literal and next_next_token.tok_type == .literal;
+                if (both_literals) {
+                    if (is_hex_char(next_token.value)) {
                         _ = try tokens.consume();
-                        hex_str[0] = next_token.value;
-                        hex_str[1] = next_next_token.value;
-                    } else {
-                        hex_str[1] = next_token.value;
-                    }
+                        var hex_str: [2]u8 = .{ '0', '0' };
+                        if (is_hex_char(next_next_token.value)) {
+                            _ = try tokens.consume();
+                            hex_str[0] = next_token.value;
+                            hex_str[1] = next_next_token.value;
+                        } else {
+                            hex_str[1] = next_token.value;
+                        }
 
-                    const byte_value = try std.fmt.parseInt(u8, &hex_str, 16);
-                    return ASTNode{ .literal = byte_value };
+                        const byte_value = try std.fmt.parseInt(u8, &hex_str, 16);
+                        return ASTNode{ .literal = byte_value };
+                    }
                 }
             }
         }
@@ -214,8 +222,7 @@ pub const Parser = struct {
                 try state_stack.append(current_state.*);
                 var is_negative = false;
 
-                if (tokens.available() > 0) {
-                    const peeked_token = try tokens.peek(0);
+                if (tokens.peek(0)) |peeked_token| {
                     if (peeked_token.tok_type == .caret) {
                         _ = try tokens.consume();
                         is_negative = true;
