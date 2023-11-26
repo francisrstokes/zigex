@@ -30,9 +30,9 @@ pub const TokenStream = struct {
         return self.tokens.items.len - self.index;
     }
 
-    pub fn peek(self: *Self, distance: usize) !Token {
+    pub fn peek(self: *Self, distance: usize) ?Token {
         if ((self.index + distance) >= self.tokens.items.len) {
-            return error.OutOfBounds;
+            return null;
         }
         return self.tokens.items[self.index + distance];
     }

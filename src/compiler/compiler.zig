@@ -199,7 +199,8 @@ pub const Compiler = struct {
                 return next_block_index;
             },
             .one_or_more => {
-                var content = parsed.ophan_nodes.items[node.one_or_more];
+                const quantifier = node.one_or_more;
+                var content = parsed.ophan_nodes.items[quantifier.node];
 
                 try self.blocks.append(vm.Block.init(self.allocator));
                 const content_block_index = self.blocks.items.len - 1;
@@ -217,12 +218,16 @@ pub const Compiler = struct {
                 try self.blocks.append(vm.Block.init(self.allocator));
                 var next_block_index = self.blocks.items.len - 1;
 
-                try loop_block.append(.{ .split = .{ .a = content_block_index, .b = next_block_index } });
-
+                if (quantifier.greedy) {
+                    try loop_block.append(.{ .split = .{ .a = content_block_index, .b = next_block_index } });
+                } else {
+                    try loop_block.append(.{ .split = .{ .a = next_block_index, .b = content_block_index } });
+                }
                 return next_block_index;
             },
             .zero_or_one => {
-                var content = parsed.ophan_nodes.items[node.zero_or_one];
+                const quantifier = node.zero_or_one;
+                var content = parsed.ophan_nodes.items[quantifier.node];
 
                 try self.blocks.append(vm.Block.init(self.allocator));
                 const quantification_block_index = self.blocks.items.len - 1;
@@ -237,7 +242,11 @@ pub const Compiler = struct {
                 try self.blocks.items[current_block_index].append(.{ .jump = quantification_block_index });
 
                 // The quantification block has the split and a jump to the next block
-                try self.blocks.items[quantification_block_index].append(.{ .split = .{ .a = content_block_index, .b = next_block_index } });
+                if (quantifier.greedy) {
+                    try self.blocks.items[quantification_block_index].append(.{ .split = .{ .a = content_block_index, .b = next_block_index } });
+                } else {
+                    try self.blocks.items[quantification_block_index].append(.{ .split = .{ .a = next_block_index, .b = content_block_index } });
+                }
 
                 // The content block has the content itself
                 const final_content_index = try self.compile_node(parsed, content, content_block_index);
@@ -246,7 +255,8 @@ pub const Compiler = struct {
                 return next_block_index;
             },
             .zero_or_more => {
-                var content = parsed.ophan_nodes.items[node.zero_or_more];
+                const quantifier = node.zero_or_more;
+                var content = parsed.ophan_nodes.items[quantifier.node];
 
                 try self.blocks.append(vm.Block.init(self.allocator));
                 const quantification_block_index = self.blocks.items.len - 1;
@@ -266,7 +276,12 @@ pub const Compiler = struct {
 
                 // Quantification block
                 try self.blocks.items[quantification_block_index].append(.{ .progress = self.progress_index });
-                try self.blocks.items[quantification_block_index].append(.{ .split = .{ .a = content_block_index, .b = next_block_index } });
+
+                if (quantifier.greedy) {
+                    try self.blocks.items[quantification_block_index].append(.{ .split = .{ .a = content_block_index, .b = next_block_index } });
+                } else {
+                    try self.blocks.items[quantification_block_index].append(.{ .split = .{ .a = next_block_index, .b = content_block_index } });
+                }
                 self.progress_index += 1;
 
                 return next_block_index;

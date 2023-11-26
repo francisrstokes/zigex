@@ -23,6 +23,7 @@ pub const ASTNode = union(ASTNodeType) {
     const Alternation = struct { left: usize, right: usize };
     const List = struct { nodes: usize, negative: bool };
     const Range = struct { a: u8, b: u8 };
+    const Quantifier = struct { greedy: bool, node: usize };
 
     regex: usize,
     literal: u8,
@@ -32,9 +33,9 @@ pub const ASTNode = union(ASTNodeType) {
     range: Range,
     wildcard: u8,
     alternation: Alternation,
-    zero_or_one: usize,
-    zero_or_more: usize,
-    one_or_more: usize,
+    zero_or_one: Quantifier,
+    zero_or_more: Quantifier,
+    one_or_more: Quantifier,
     group: Group,
     end_of_input: u8,
 
@@ -133,22 +134,31 @@ pub const ASTNode = union(ASTNodeType) {
             },
             .zero_or_one => {
                 indent_str(indent);
+                if (!self.zero_or_one.greedy) {
+                    std.debug.print("nongreedy_", .{});
+                }
                 std.debug.print("zero_or_one: {{\n", .{});
-                print(&orphan_nodes.items[self.zero_or_one], indent + 2, orphan_nodes, node_lists);
+                print(&orphan_nodes.items[self.zero_or_one.node], indent + 2, orphan_nodes, node_lists);
                 indent_str(indent);
                 std.debug.print("}}\n", .{});
             },
             .zero_or_more => {
                 indent_str(indent);
+                if (!self.zero_or_more.greedy) {
+                    std.debug.print("nongreedy_", .{});
+                }
                 std.debug.print("zero_or_more: {{\n", .{});
-                print(&orphan_nodes.items[self.zero_or_more], indent + 2, orphan_nodes, node_lists);
+                print(&orphan_nodes.items[self.zero_or_more.node], indent + 2, orphan_nodes, node_lists);
                 indent_str(indent);
                 std.debug.print("}}\n", .{});
             },
             .one_or_more => {
                 indent_str(indent);
+                if (!self.one_or_more.greedy) {
+                    std.debug.print("nongreedy_", .{});
+                }
                 std.debug.print("one_or_more: {{\n", .{});
-                print(&orphan_nodes.items[self.one_or_more], indent + 2, orphan_nodes, node_lists);
+                print(&orphan_nodes.items[self.one_or_more.node], indent + 2, orphan_nodes, node_lists);
                 indent_str(indent);
                 std.debug.print("}}\n", .{});
             },

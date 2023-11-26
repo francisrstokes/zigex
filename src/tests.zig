@@ -35,6 +35,37 @@ fn test_fully_matching_string(comptime re_str: []const u8, comptime input: []con
     }
 }
 
+fn test_partially_matching_string(comptime re_str: []const u8, comptime input: []const u8, partial: []const u8, captures: []const ?[]const u8) !void {
+    const allocator = std.testing.allocator;
+
+    var re = try Regex.init(allocator, re_str, .{});
+    defer re.deinit();
+
+    var match = try re.match(input);
+    defer match.?.deinit();
+
+    try expect(match != null);
+    try expect(std.mem.eql(u8, match.?.match, partial));
+
+    var groups = try match.?.get_groups(allocator);
+    defer groups.deinit();
+
+    try expect(groups.items.len == captures.len);
+    for (0..captures.len) |i| {
+        const capture_null = captures[i] == null;
+        const group_null = groups.items[i] == null;
+
+        try expect(capture_null == group_null);
+
+        if (!capture_null) {
+            const capture_str = captures[i].?;
+            const group_str = groups.items[i].?.value;
+            const strings_equal = std.mem.eql(u8, capture_str, group_str);
+            _ = try expect(strings_equal);
+        }
+    }
+}
+
 fn test_non_matching_string(comptime re_str: []const u8, comptime input: []const u8) !void {
     const allocator = std.testing.allocator;
 
@@ -182,4 +213,32 @@ test "(a*)*" {
     try test_fully_matching_string("(a*)*", "", &.{null});
     try test_fully_matching_string("(a*)*", "a", &.{"a"});
     try test_fully_matching_string("(a*)*", "aaaa", &.{"aaaa"});
+}
+
+test "<(.+)>" {
+    try test_fully_matching_string("<(.+)>", "<html>xyz</html>", &.{"html>xyz</html"});
+}
+
+test "<(.+?)>" {
+    try test_partially_matching_string("<(.+?)>", "<html>xyz</html>", "<html>", &.{"html"});
+}
+
+test ".*a" {
+    try test_fully_matching_string(".*a", "bbbbbaa", &.{});
+}
+
+test ".*?a" {
+    try test_partially_matching_string(".*?a", "bbbbbaa", "bbbbba", &.{});
+}
+
+test "a?." {
+    try test_fully_matching_string("a?.", "ab", &.{});
+    try test_fully_matching_string("a?.", "a", &.{});
+    try test_fully_matching_string("a?.", "b", &.{});
+}
+
+test ".??a" {
+    try test_partially_matching_string(".??a", "ab", "a", &.{});
+    try test_fully_matching_string("a??.", "a", &.{});
+    try test_fully_matching_string("a??.", "b", &.{});
 }
