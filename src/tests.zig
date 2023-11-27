@@ -258,3 +258,7 @@ test "abc" {
     try test_fully_matching_string("abc", "abc", 0, &.{});
     try test_partially_matching_string("abc", "xyzabc", 3, "abc", &.{});
 }
+
+test "([a-z])-" {
+    try test_fully_matching_string("([a-z])-", "a-", 0, &.{"a"});
+}

@@ -335,8 +335,8 @@ pub const Parser = struct {
                 return;
             },
             else => {
+                var node = ASTNode{ .literal = token.value };
                 if (self.current_state.in_list) {
-                    var node = ASTNode{ .literal = token.value };
                     if (try self.maybe_parse_rangenode(node)) |range_node| {
                         try self.add_to_current_nodelist(range_node);
                     } else {
@@ -345,8 +345,13 @@ pub const Parser = struct {
                     return;
                 }
 
-                std.debug.print("Unexpected quantifier: {any}\n", .{token});
-                @panic("unreachable");
+                if (try self.maybe_parse_and_wrap_quantifier(node)) |quantifier_node| {
+                    try self.add_to_current_nodelist(quantifier_node);
+                } else {
+                    try self.add_to_current_nodelist(node);
+                }
+
+                return;
             },
             // else => @panic("unreachable"),
         }
