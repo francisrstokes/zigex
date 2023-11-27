@@ -8,6 +8,7 @@ const Compiler = compiler.Compiler;
 const vm = @import("vm.zig");
 const StringMatch = vm.StringMatch;
 const VMInstance = vm.VMInstance;
+const ListItemLists = vm.ListItemLists;
 const DebugConfig = @import("debug-config.zig").DebugConfig;
 
 pub const MatchObject = struct {
@@ -47,6 +48,7 @@ pub const Regex = struct {
 
     allocator: Allocator,
     vm_blocks: std.ArrayList(vm.Block),
+    vm_lists: ListItemLists,
     debug_config: DebugConfig,
 
     pub fn init(allocator: Allocator, regular_expression: []const u8, debug_config: DebugConfig) !Self {
@@ -61,11 +63,11 @@ pub const Regex = struct {
             parsed.ast.pretty_print(&parsed.orphan_nodes, &parsed.node_lists);
         }
 
-        var vm_blocks = try Compiler.compile(allocator, &parsed);
+        var compilation_result = try Compiler.compile(allocator, &parsed);
         if (debug_config.dump_blocks) {
             var i: usize = 0;
             std.debug.print("\n---------- VM Blocks ----------\n", .{});
-            for (vm_blocks.items) |block| {
+            for (compilation_result.blocks.items) |block| {
                 vm.print_block(block, i);
                 i += 1;
             }
@@ -73,13 +75,14 @@ pub const Regex = struct {
 
         return .{
             .allocator = allocator,
-            .vm_blocks = vm_blocks,
+            .vm_blocks = compilation_result.blocks,
+            .vm_lists = compilation_result.lists,
             .debug_config = debug_config,
         };
     }
 
     pub fn match(self: *Self, input: []const u8) !?MatchObject {
-        var vm_instance = VMInstance.init(self.allocator, &self.vm_blocks, input, self.debug_config);
+        var vm_instance = VMInstance.init(self.allocator, &self.vm_blocks, &self.vm_lists, input, self.debug_config);
         defer vm_instance.deinit();
         const matched = try vm_instance.run();
 
@@ -93,5 +96,9 @@ pub const Regex = struct {
 
     pub fn deinit(self: *Self) void {
         compiler.blocks_deinit(self.vm_blocks);
+        for (self.vm_lists.items) |list| {
+            list.deinit();
+        }
+        self.vm_lists.deinit();
     }
 };

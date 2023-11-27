@@ -188,6 +188,15 @@ test "[^abc]" {
     try test_fully_matching_string("[^abc]", "$", 0, &.{});
 }
 
+test "[^a-z\\s\\d]+" {
+    try test_non_matching_string("[^a-z\\s\\d]+", "a");
+    try test_non_matching_string("[^a-z\\s\\d]+", "z");
+    try test_non_matching_string("[^a-z\\s\\d]+", " ");
+    try test_non_matching_string("[^a-z\\s\\d]+", "5");
+    try test_fully_matching_string("[^a-z\\s\\d]+", "!@#$%^&*()[]{}", 0, &.{});
+    try test_fully_matching_string("[^a-z\\s\\d]+", "ABC", 0, &.{});
+}
+
 test "a\\sb$" {
     try test_fully_matching_string("a\\sb$", "a b", 0, &.{});
     try test_non_matching_string("a\\sb$", "a.b");

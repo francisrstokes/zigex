@@ -2,6 +2,8 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 
 const vm = @import("../vm.zig");
+const ListItem = vm.ListItem;
+const ListItemLists = vm.ListItemLists;
 
 const parser = @import("parser.zig");
 const ASTNode = @import("common.zig").ASTNode;
@@ -17,8 +19,14 @@ pub fn blocks_deinit(blocks: std.ArrayList(vm.Block)) void {
 pub const Compiler = struct {
     const Self = @This();
 
+    const CompilationResult = struct {
+        blocks: std.ArrayList(vm.Block),
+        lists: ListItemLists,
+    };
+
     allocator: Allocator,
     blocks: std.ArrayList(vm.Block),
+    lists: ListItemLists,
     progress_index: usize = 0,
 
     fn create_block(self: *Self) !usize {
@@ -120,75 +128,29 @@ pub const Compiler = struct {
 
                 const next_block_index = try self.create_block();
 
-                if (!content.negative) {
-                    // Trivial case where we only have a single node in the list.
-                    // Generate a block for that node, and add a jump to the next block.
-                    if (parsed.node_lists.items[content.nodes].items.len == 1) {
-                        const final_block_index = try self.compile_node(parsed, parsed.node_lists.items[content.nodes].items[0], current_block_index);
-                        try self.add_to_block(final_block_index, .{ .jump = next_block_index });
-                        return next_block_index;
+                try self.lists.append(std.ArrayList(ListItem).init(self.allocator));
+                const list_index = self.lists.items.len - 1;
+
+                for (parsed.node_lists.items[content.nodes].items) |child| {
+                    switch (child) {
+                        .literal => {
+                            try self.lists.items[list_index].append(.{ .char = child.literal });
+                        },
+                        .digit => {
+                            try self.lists.items[list_index].append(.{ .range = .{ .a = '0', .b = '9' } });
+                        },
+                        .whitespace => {
+                            try self.lists.items[list_index].append(.{ .whitespace = 0 });
+                        },
+                        .range => {
+                            try self.lists.items[list_index].append(.{ .range = .{ .a = child.range.a, .b = child.range.b } });
+                        },
+                        else => @panic("Unexpected ASTNode found when compiling list"),
                     }
-
-                    // In the case that we have N nodes in the list, we need to generate N-1 splits.
-                    try self.blocks.append(vm.Block.init(self.allocator));
-                    var split_block_index = self.blocks.items.len - 1;
-
-                    try self.add_to_block(current_block_index, .{ .jump = split_block_index });
-
-                    for (0..parsed.node_lists.items[content.nodes].items.len - 1) |i| {
-                        // Create a block for the content node, compile it, and add a jump to the next block.
-                        const block_index = try self.create_block();
-                        const final_block_index = try self.compile_node(parsed, parsed.node_lists.items[content.nodes].items[i], block_index);
-                        try self.add_to_block(final_block_index, .{ .jump = next_block_index });
-
-                        // If this is the last node in the list, the split should direct to the next element in the list, not a new split
-                        if (i == parsed.node_lists.items[content.nodes].items.len - 2) {
-                            const last_block_index = try self.create_block();
-                            const final_last_block_index = try self.compile_node(parsed, parsed.node_lists.items[content.nodes].items[i + 1], last_block_index);
-                            try self.add_to_block(final_last_block_index, .{ .jump = next_block_index });
-
-                            try self.add_to_block(split_block_index, .{ .split = .{ .a = block_index, .b = last_block_index } });
-                        } else {
-                            // Create a new block for the next split
-                            const new_split_block_index = try self.create_block();
-
-                            // Update the split block to point to the new content block and the new split block
-                            try self.add_to_block(split_block_index, .{ .split = .{ .a = block_index, .b = new_split_block_index } });
-                            split_block_index = new_split_block_index;
-                        }
-                    }
-                } else {
-                    // For a negative list, we need to generate a split for each node in the list.
-                    var split_block_index = try self.create_block();
-                    try self.add_to_block(split_block_index, .{ .split = .{ .a = 0, .b = 0 } });
-
-                    try self.add_to_block(current_block_index, .{ .deadend_marker = 0 });
-                    try self.add_to_block(current_block_index, .{ .jump = split_block_index });
-
-                    for (0..parsed.node_lists.items[content.nodes].items.len) |i| {
-                        // Create a block for the content node, compile it, and add a deadend after.
-                        const block_index = try self.create_block();
-                        const final_block_index = try self.compile_node(parsed, parsed.node_lists.items[content.nodes].items[i], block_index);
-                        try self.add_to_block(final_block_index, .{ .deadend = 0 });
-
-                        const split_block_len = self.blocks.items[split_block_index].items.len;
-                        // If this is the last node in the list, the split should direct to the next_block_index
-                        if (i == parsed.node_lists.items[content.nodes].items.len - 1) {
-                            self.blocks.items[split_block_index].items[split_block_len - 1].split.a = block_index;
-                            self.blocks.items[split_block_index].items[split_block_len - 1].split.b = next_block_index;
-                        } else {
-                            // Update the split block to point to the new content block and the new split block
-                            const new_split_block_index = try self.create_block();
-                            try self.add_to_block(new_split_block_index, .{ .split = .{ .a = 0, .b = 0 } });
-
-                            self.blocks.items[split_block_index].items[split_block_len - 1].split.a = block_index;
-                            self.blocks.items[split_block_index].items[split_block_len - 1].split.b = new_split_block_index;
-                            split_block_index = new_split_block_index;
-                        }
-                    }
-
-                    try self.add_to_block(next_block_index, .{ .wildcard = 0 });
                 }
+
+                try self.add_to_block(current_block_index, .{ .list = .{ .items = list_index, .negate = content.negative } });
+                try self.add_to_block(current_block_index, .{ .jump = next_block_index });
 
                 return next_block_index;
             },
@@ -270,10 +232,10 @@ pub const Compiler = struct {
         }
     }
 
-    pub fn compile(allocator: Allocator, parsed: *ParsedRegex) !std.ArrayList(vm.Block) {
-        var self = Self{ .allocator = allocator, .blocks = std.ArrayList(vm.Block).init(allocator) };
+    pub fn compile(allocator: Allocator, parsed: *ParsedRegex) !CompilationResult {
+        var self = Self{ .allocator = allocator, .blocks = std.ArrayList(vm.Block).init(allocator), .lists = ListItemLists.init(allocator) };
         try self.blocks.append(vm.Block.init(self.allocator));
         _ = try self.compile_node(parsed, parsed.ast, 0);
-        return self.blocks;
+        return .{ .blocks = self.blocks, .lists = self.lists };
     }
 };

@@ -3,9 +3,18 @@ const Allocator = std.mem.Allocator;
 
 const DebugConfig = @import("debug-config.zig").DebugConfig;
 
-pub const OpType = enum { char, wildcard, whitespace, range, jump, split, end, end_of_input, start_capture, end_capture, deadend_marker, deadend, progress };
+pub const OpType = enum { char, wildcard, whitespace, range, jump, split, end, end_of_input, start_capture, end_capture, list, progress };
 
 var op_count: usize = 0;
+
+pub const ListItemType = enum { char, range, whitespace };
+pub const ListItem = union(ListItemType) {
+    char: u8,
+    range: struct { a: u8, b: u8 },
+    whitespace: u8,
+};
+pub const List = struct { items: usize, negate: bool };
+pub const ListItemLists = std.ArrayList(std.ArrayList(ListItem));
 
 pub const Op = union(OpType) {
     // Content based
@@ -24,8 +33,7 @@ pub const Op = union(OpType) {
     end: u8,
     progress: usize,
     end_of_input: u8,
-    deadend: u8,
-    deadend_marker: u8,
+    list: List,
 
     pub fn print(self: *@This(), block_index: usize, pc: usize, match: []const u8) void {
         switch (self.*) {
@@ -36,12 +44,17 @@ pub const Op = union(OpType) {
             OpType.split => std.debug.print("{d}: B{d}.{d}: split({d}, {d})     \"{s}\"\n", .{ op_count, block_index, pc, self.split.a, self.split.b, match }),
             OpType.jump => std.debug.print("{d}: B{d}.{d}: jump({d})         \"{s}\"\n", .{ op_count, block_index, pc, self.jump, match }),
             OpType.start_capture => std.debug.print("{d}: B{d}.{d}: start_capture({d}) \"{s}\"\n", .{ op_count, block_index, pc, self.start_capture, match }),
+            OpType.list => {
+                if (self.list.negate) {
+                    std.debug.print("{d}: B{d}.{d}: negative_list({d}) \"{s}\"\n", .{ op_count, block_index, pc, self.list.items, match });
+                } else {
+                    std.debug.print("{d}: B{d}.{d}: list({d}) \"{s}\"\n", .{ op_count, block_index, pc, self.list.items, match });
+                }
+            },
             OpType.progress => std.debug.print("{d}: B{d}.{d}: progress({d})  \"{s}\"\n", .{ op_count, block_index, pc, self.progress, match }),
             OpType.end_capture => std.debug.print("{d}: B{d}.{d}: end_capture({d})  \"{s}\"\n", .{ op_count, block_index, pc, self.end_capture, match }),
             OpType.end => std.debug.print("{d}: B{d}.{d}: end             \"{s}\"\n", .{ op_count, block_index, pc, match }),
             OpType.end_of_input => std.debug.print("{d}: B{d}.{d}: end_of_input    \"{s}\"\n", .{ op_count, block_index, pc, match }),
-            OpType.deadend => std.debug.print("{d}: B{d}.{d}: deadend    \"{s}\"\n", .{ op_count, block_index, pc, match }),
-            OpType.deadend_marker => std.debug.print("{d}: B{d}.{d}: deadend_marker    \"{s}\"\n", .{ op_count, block_index, pc, match }),
         }
         op_count += 1;
     }
@@ -63,13 +76,18 @@ pub fn print_block(block: Block, index: usize) void {
             OpType.split => std.debug.print("  split({d}, {d})\n", .{ instruction.split.a, instruction.split.b }),
             OpType.range => std.debug.print("  range({c}, {c})\n", .{ instruction.range.a, instruction.range.b }),
             OpType.jump => std.debug.print("  jump({d})\n", .{instruction.jump}),
+            OpType.list => {
+                if (instruction.list.negate) {
+                    std.debug.print("  negative_list({d})\n", .{instruction.list.items});
+                } else {
+                    std.debug.print("  list({d})\n", .{instruction.list.items});
+                }
+            },
             OpType.progress => std.debug.print("  progress({d})\n", .{instruction.progress}),
             OpType.end => std.debug.print("  end\n", .{}),
             OpType.end_of_input => std.debug.print("  end_of_input\n", .{}),
             OpType.start_capture => std.debug.print("  start_capture({d})\n", .{instruction.start_capture}),
             OpType.end_capture => std.debug.print("  end_capture({d})\n", .{instruction.end_capture}),
-            OpType.deadend => std.debug.print("  deadend\n", .{}),
-            OpType.deadend_marker => std.debug.print("  deadend_marker\n", .{}),
         }
     }
     std.debug.print("\n", .{});
@@ -120,8 +138,9 @@ pub const VMInstance = struct {
     num_groups: usize = 0,
     match_from_index: usize = 0,
     progress: std.AutoHashMap(usize, ?usize),
+    lists: *ListItemLists,
 
-    pub fn init(allocator: Allocator, blocks: *std.ArrayList(Block), input_str: []const u8, config: DebugConfig) Self {
+    pub fn init(allocator: Allocator, blocks: *std.ArrayList(Block), lists: *ListItemLists, input_str: []const u8, config: DebugConfig) Self {
         return .{
             .blocks = blocks,
             .state = .{ .block_index = 0, .pc = 0, .index = 0, .next_split = null, .captures = std.AutoHashMap(usize, StringMatch).init(allocator), .capture_stack = std.ArrayList(usize).init(allocator) },
@@ -130,6 +149,7 @@ pub const VMInstance = struct {
             .allocator = allocator,
             .config = config,
             .progress = std.AutoHashMap(usize, ?usize).init(allocator),
+            .lists = lists,
         };
     }
 
@@ -207,6 +227,87 @@ pub const VMInstance = struct {
         return true;
     }
 
+    fn peek_range(self: *Self, a: u8, b: u8) bool {
+        if (!self.is_end_of_input()) {
+            if (self.input_str[self.state.index] >= a and self.input_str[self.state.index] <= b) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    fn peek_char(self: *Self, char: u8) bool {
+        if (!self.is_end_of_input() and self.input_str[self.state.index] == char) {
+            return true;
+        }
+        return false;
+    }
+
+    fn match_char(self: *Self, char: u8) !bool {
+        if (self.peek_char(char)) {
+            self.state.index += 1;
+            self.state.pc += 1;
+            return true;
+        } else {
+            if (try self.unwind()) {
+                return true;
+            }
+            return false;
+        }
+    }
+
+    fn peek_whitespace(self: *Self) bool {
+        if (!self.is_end_of_input()) {
+            return switch (self.input_str[self.state.index]) {
+                ' ' => true,
+                '\t' => true,
+                '\n' => true,
+                '\r' => true,
+                0x0c => true, // \f
+                else => false,
+            };
+        }
+        return false;
+    }
+
+    fn match_whitespace(self: *Self) !bool {
+        if (self.peek_whitespace()) {
+            self.state.index += 1;
+            self.state.pc += 1;
+            return true;
+        } else {
+            if (try self.unwind()) {
+                return true;
+            }
+            return false;
+        }
+    }
+
+    fn match_end_of_input(self: *Self) !bool {
+        if (self.is_end_of_input()) {
+            self.state.pc += 1;
+            return true;
+        } else {
+            if (try self.unwind()) {
+                return true;
+            }
+            return false;
+        }
+    }
+
+    fn match_wildcard(self: *Self) !bool {
+        if (!self.is_end_of_input()) {
+            self.state.index += 1;
+            self.state.pc += 1;
+            return true;
+        } else {
+            if (try self.unwind()) {
+                return true;
+            }
+            return false;
+        }
+    }
+
     pub fn run(self: *Self) !bool {
         var done = false;
         var return_value = false;
@@ -222,84 +323,19 @@ pub const VMInstance = struct {
 
                 switch (op) {
                     .char => {
-                        if (!self.is_end_of_input()) {
-                            if (self.input_str[self.state.index] == op.char) {
-                                self.state.index += 1;
-                                self.state.pc += 1;
-                                continue;
-                            } else {
-                                if (try self.unwind()) {
-                                    continue;
-                                }
-                                done = true;
-                            }
-                        } else {
-                            if (try self.unwind()) {
-                                continue;
-                            }
-                            done = true;
-                        }
+                        done = !try self.match_char(op.char);
+                        continue;
                     },
                     .whitespace => {
-                        if (!self.is_end_of_input()) {
-                            const match = switch (self.input_str[self.state.index]) {
-                                ' ' => true,
-                                '\t' => true,
-                                '\n' => true,
-                                '\r' => true,
-                                0x0c => true, // \f
-                                else => false,
-                            };
-
-                            if (match) {
-                                self.state.index += 1;
-                                self.state.pc += 1;
-                                continue;
-                            } else {
-                                if (try self.unwind()) {
-                                    continue;
-                                }
-                                done = true;
-                            }
-                        } else {
-                            if (try self.unwind()) {
-                                continue;
-                            }
-                            done = true;
-                        }
+                        done = !try self.match_whitespace();
+                        continue;
                     },
                     .end_of_input => {
-                        if (self.is_end_of_input()) {
-                            done = true;
-                            return_value = true;
-                        } else {
-                            if (try self.unwind()) {
-                                continue;
-                            }
-                            done = true;
-                        }
+                        done = !try self.match_end_of_input();
+                        continue;
                     },
                     .range => {
-                        if (!self.is_end_of_input()) {
-                            if (self.input_str[self.state.index] >= op.range.a and self.input_str[self.state.index] <= op.range.b) {
-                                self.state.index += 1;
-                                self.state.pc += 1;
-                                continue;
-                            } else {
-                                if (try self.unwind()) {
-                                    continue;
-                                }
-                                done = true;
-                            }
-                        } else {
-                            if (try self.unwind()) {
-                                continue;
-                            }
-                            done = true;
-                        }
-                    },
-                    .wildcard => {
-                        if (!self.is_end_of_input()) {
+                        if (self.peek_range(op.range.a, op.range.b)) {
                             self.state.index += 1;
                             self.state.pc += 1;
                             continue;
@@ -309,6 +345,10 @@ pub const VMInstance = struct {
                             }
                             done = true;
                         }
+                    },
+                    .wildcard => {
+                        done = !try self.match_wildcard();
+                        continue;
                     },
                     .jump => {
                         self.state.block_index = op.jump;
@@ -342,23 +382,38 @@ pub const VMInstance = struct {
                         self.state.pc += 1;
                         continue;
                     },
-                    .deadend_marker => {
-                        self.deadend_marker = self.stack.items.len;
-                        self.state.pc += 1;
-                        continue;
-                    },
-                    .deadend => {
-                        // Reset the stack to the deadend marker
-                        while (self.stack.items.len > self.deadend_marker) {
-                            _ = self.stack.pop();
-                        }
+                    .list => {
+                        if (!self.is_end_of_input()) {
+                            var is_match = false;
 
-                        self.deadend_marker = 0;
+                            for (self.lists.items[op.list.items].items) |list_item| {
+                                is_match = switch (list_item) {
+                                    .char => self.peek_char(list_item.char),
+                                    .range => self.peek_range(list_item.range.a, list_item.range.b),
+                                    .whitespace => self.peek_whitespace(),
+                                };
 
-                        if (try self.unwind()) {
-                            continue;
+                                if (is_match) {
+                                    break;
+                                }
+                            }
+
+                            if (is_match != op.list.negate) {
+                                self.state.index += 1;
+                                self.state.pc += 1;
+                                continue;
+                            } else {
+                                if (try self.unwind()) {
+                                    continue;
+                                }
+                                done = true;
+                            }
+                        } else {
+                            if (try self.unwind()) {
+                                continue;
+                            }
+                            done = true;
                         }
-                        done = true;
                     },
                     .progress => {
                         // The purpose of the progress instruction is to prevent infinite loops
