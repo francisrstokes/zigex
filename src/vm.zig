@@ -7,7 +7,7 @@ pub const OpType = enum { char, wildcard, whitespace, range, jump, split, end, e
 
 var op_count: usize = 0;
 
-const Op = union(OpType) {
+pub const Op = union(OpType) {
     // Content based
     char: u8,
     wildcard: u8,
