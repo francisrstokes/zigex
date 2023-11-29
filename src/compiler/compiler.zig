@@ -92,6 +92,10 @@ pub const Compiler = struct {
                 try self.add_to_block(current_block_index, .{ .wildcard = node.wildcard });
                 return current_block_index;
             },
+            .start_of_input => {
+                try self.add_to_block(current_block_index, .{ .start_of_input = 0 });
+                return current_block_index;
+            },
             .end_of_input => {
                 try self.add_to_block(current_block_index, .{ .end_of_input = 0 });
                 return current_block_index;

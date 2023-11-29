@@ -14,6 +14,7 @@ const ASTNodeType = enum {
     zero_or_more,
     one_or_more,
     group,
+    start_of_input,
     end_of_input,
 };
 
@@ -39,6 +40,7 @@ pub const ASTNode = union(ASTNodeType) {
     zero_or_more: Quantifier,
     one_or_more: Quantifier,
     group: Group,
+    start_of_input: u8,
     end_of_input: u8,
 
     fn indent_str(amount: usize) void {
@@ -76,6 +78,10 @@ pub const ASTNode = union(ASTNodeType) {
             .range => {
                 indent_str(indent);
                 std.debug.print("range({c}, {c})\n", .{ self.range.a, self.range.b });
+            },
+            .start_of_input => {
+                indent_str(indent);
+                std.debug.print("start_of_input\n", .{});
             },
             .end_of_input => {
                 indent_str(indent);
