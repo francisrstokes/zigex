@@ -22,15 +22,15 @@ pub const ASTNode = union(ASTNodeType) {
 
     const Group = struct { nodes: usize, index: usize };
     const Alternation = struct { left: usize, right: usize };
-    const List = struct { nodes: usize, negative: bool };
+    const List = struct { nodes: usize, negate: bool };
     const Range = struct { a: u8, b: u8 };
     const Quantifier = struct { greedy: bool, node: usize };
 
     regex: usize,
     literal: u8,
     digit: u8,
-    whitespace: u8,
-    word: u8,
+    whitespace: bool,
+    word: bool,
     list: List,
     range: Range,
     wildcard: u8,
@@ -68,6 +68,9 @@ pub const ASTNode = union(ASTNodeType) {
             },
             .word => {
                 indent_str(indent);
+                if (self.word) {
+                    std.debug.print("negative_", .{});
+                }
                 std.debug.print("word\n", .{});
             },
             .range => {
@@ -84,6 +87,9 @@ pub const ASTNode = union(ASTNodeType) {
             },
             .whitespace => {
                 indent_str(indent);
+                if (self.whitespace) {
+                    std.debug.print("negative_", .{});
+                }
                 std.debug.print("whitespace\n", .{});
             },
             .wildcard => {
@@ -102,7 +108,7 @@ pub const ASTNode = union(ASTNodeType) {
             },
             .list => {
                 indent_str(indent);
-                if (self.list.negative) {
+                if (self.list.negate) {
                     std.debug.print("negative_", .{});
                 }
                 std.debug.print("list: {{\n", .{});

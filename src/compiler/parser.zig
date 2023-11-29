@@ -168,8 +168,10 @@ pub const Parser = struct {
                 var node: ASTNode = undefined;
                 switch (token.value) {
                     'd' => node = ASTNode{ .digit = 0 },
-                    's' => node = ASTNode{ .whitespace = 0 },
-                    'w' => node = ASTNode{ .word = 0 },
+                    's' => node = ASTNode{ .whitespace = false },
+                    'S' => node = ASTNode{ .whitespace = true },
+                    'w' => node = ASTNode{ .word = false },
+                    'W' => node = ASTNode{ .word = true },
                     'x' => {
                         if (try self.maybe_parse_hex_literal()) |n| {
                             node = n;
@@ -246,7 +248,7 @@ pub const Parser = struct {
                 return;
             },
             .rsquare => {
-                var node = ASTNode{ .list = .{ .nodes = self.current_state.nodes, .negative = self.current_state.is_negative } };
+                var node = ASTNode{ .list = .{ .nodes = self.current_state.nodes, .negate = self.current_state.is_negative } };
                 self.current_state.* = self.state_stack.pop();
 
                 if (try self.maybe_parse_and_wrap_quantifier(node)) |quantifier_node| {

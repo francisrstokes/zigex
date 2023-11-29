@@ -270,3 +270,16 @@ test "\\w" {
 test "\\w+" {
     try test_fully_matching_string("\\w+", "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_", 0, &.{});
 }
+
+test "\\W+" {
+    try test_fully_matching_string("\\W+", "!@#$%^&*()-+=`~./<>?\\|{}[]", 0, &.{});
+}
+
+test "\\W" {
+    try test_non_matching_string("\\W", "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_");
+}
+
+test "\\S" {
+    try test_non_matching_string("\\S", " \t\r\x0c\n");
+    try test_fully_matching_string("\\S", "a", 0, &.{});
+}
