@@ -1,8 +1,8 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 
-const compiler_common = @import("common.zig");
-const ASTNode = compiler_common.ASTNode;
+const ast = @import("ast.zig");
+const ASTNode = ast.ASTNode;
 
 const tokeniser = @import("tokeniser.zig");
 const TokenStream = tokeniser.TokenStream;

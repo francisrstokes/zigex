@@ -6,7 +6,7 @@ const ListItem = vm.ListItem;
 const ListItemLists = vm.ListItemLists;
 
 const parser = @import("parser.zig");
-const ASTNode = @import("common.zig").ASTNode;
+const ASTNode = @import("ast.zig").ASTNode;
 const ParsedRegex = parser.ParsedRegex;
 
 pub fn blocks_deinit(blocks: std.ArrayList(vm.Block)) void {
