@@ -232,10 +232,75 @@ pub const Compiler = struct {
         }
     }
 
+    fn optimise_single_block_jumps(self: *Self) !void {
+        var single_jump_blocks = std.AutoHashMap(usize, usize).init(self.allocator);
+        defer single_jump_blocks.deinit();
+
+        // Collect up all the single jump blocks
+        for (self.blocks.items, 0..) |block, block_index| {
+            if (block.items.len == 1) {
+                switch (block.items[0]) {
+                    .jump => try single_jump_blocks.put(block_index, block.items[0].jump),
+                    else => {},
+                }
+            }
+        }
+
+        // Iterate through all of the blocks and replace the jumps with the actual block
+        // Run this optimisation to a fixed point.
+        // Note: This method doesn't actually remove blocks that were optimised out, instead
+        //       only leaving them in place with no references to them.
+        while (true) {
+            var branches_rewritten: usize = 0;
+
+            for (0..self.blocks.items.len) |block_index| {
+                const block_len = self.blocks.items[block_index].items.len;
+                for (0..block_len) |op_index| {
+                    var op = &self.blocks.items[block_index].items[op_index];
+
+                    switch (op.*) {
+                        .jump => {
+                            const jump_index = op.jump;
+                            if (single_jump_blocks.get(jump_index)) |ji| {
+                                op.jump = ji;
+                                branches_rewritten += 1;
+                            }
+                        },
+                        .split => {
+                            const split_a_index = op.split.a;
+                            const split_b_index = op.split.b;
+                            if (single_jump_blocks.get(split_a_index)) |ji| {
+                                op.split.a = ji;
+                                branches_rewritten += 1;
+                            }
+                            if (single_jump_blocks.get(split_b_index)) |ji| {
+                                op.split.b = ji;
+                                branches_rewritten += 1;
+                            }
+                        },
+                        else => {},
+                    }
+                }
+            }
+
+            if (branches_rewritten == 0) {
+                break;
+            }
+        }
+    }
+
+    fn optimise(self: *Self) !void {
+        try self.optimise_single_block_jumps();
+    }
+
     pub fn compile(allocator: Allocator, parsed: *ParsedRegex) !CompilationResult {
         var self = Self{ .allocator = allocator, .blocks = std.ArrayList(vm.Block).init(allocator), .lists = ListItemLists.init(allocator) };
+
         try self.blocks.append(vm.Block.init(self.allocator));
         _ = try self.compile_node(parsed, parsed.ast, 0);
+
+        try self.optimise();
+
         return .{ .blocks = self.blocks, .lists = self.lists };
     }
 };
