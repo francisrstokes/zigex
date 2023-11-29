@@ -14,16 +14,19 @@ pub const ListItem = union(ListItemType) {
     whitespace: u8,
     word: u8,
 };
-pub const List = struct { items: usize, negate: bool };
 pub const ListItemLists = std.ArrayList(std.ArrayList(ListItem));
 
 pub const Op = union(OpType) {
+    const Range = struct { a: u8, b: u8 };
+    const Split = struct { a: usize, b: usize };
+    const List = struct { items: usize, negate: bool };
+
     // Content based
     char: u8,
     wildcard: u8,
     whitespace: u8,
     word: u8,
-    range: struct { a: u8, b: u8 },
+    range: Range,
 
     // Capture based
     start_capture: usize,
@@ -31,7 +34,7 @@ pub const Op = union(OpType) {
 
     // Flow based
     jump: usize,
-    split: struct { a: usize, b: usize },
+    split: Split,
     end: u8,
     progress: usize,
     end_of_input: u8,
