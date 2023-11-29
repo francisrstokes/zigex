@@ -169,6 +169,7 @@ pub const Parser = struct {
                 switch (token.value) {
                     'd' => node = ASTNode{ .digit = 0 },
                     's' => node = ASTNode{ .whitespace = 0 },
+                    'w' => node = ASTNode{ .word = 0 },
                     'x' => {
                         if (try self.maybe_parse_hex_literal()) |n| {
                             node = n;

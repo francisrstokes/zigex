@@ -84,6 +84,10 @@ pub const Compiler = struct {
                 try self.add_to_block(current_block_index, .{ .whitespace = 0 });
                 return current_block_index;
             },
+            .word => {
+                try self.add_to_block(current_block_index, .{ .word = 0 });
+                return current_block_index;
+            },
             .wildcard => {
                 try self.add_to_block(current_block_index, .{ .wildcard = node.wildcard });
                 return current_block_index;
@@ -141,6 +145,9 @@ pub const Compiler = struct {
                         },
                         .whitespace => {
                             try self.lists.items[list_index].append(.{ .whitespace = 0 });
+                        },
+                        .word => {
+                            try self.lists.items[list_index].append(.{ .word = 0 });
                         },
                         .range => {
                             try self.lists.items[list_index].append(.{ .range = .{ .a = child.range.a, .b = child.range.b } });

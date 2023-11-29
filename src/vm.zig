@@ -3,15 +3,16 @@ const Allocator = std.mem.Allocator;
 
 const DebugConfig = @import("debug-config.zig").DebugConfig;
 
-pub const OpType = enum { char, wildcard, whitespace, range, jump, split, end, end_of_input, start_capture, end_capture, list, progress };
+pub const OpType = enum { char, wildcard, whitespace, word, range, jump, split, end, end_of_input, start_capture, end_capture, list, progress };
 
 var op_count: usize = 0;
 
-pub const ListItemType = enum { char, range, whitespace };
+pub const ListItemType = enum { char, range, whitespace, word };
 pub const ListItem = union(ListItemType) {
     char: u8,
     range: struct { a: u8, b: u8 },
     whitespace: u8,
+    word: u8,
 };
 pub const List = struct { items: usize, negate: bool };
 pub const ListItemLists = std.ArrayList(std.ArrayList(ListItem));
@@ -21,6 +22,7 @@ pub const Op = union(OpType) {
     char: u8,
     wildcard: u8,
     whitespace: u8,
+    word: u8,
     range: struct { a: u8, b: u8 },
 
     // Capture based
@@ -40,6 +42,7 @@ pub const Op = union(OpType) {
             OpType.char => std.debug.print("{d}: B{d}.{d}: char({c})         \"{s}\"\n", .{ op_count, block_index, pc, self.char, match }),
             OpType.wildcard => std.debug.print("{d}: B{d}.{d}: wildcard        \"{s}\"\n", .{ op_count, block_index, pc, match }),
             OpType.whitespace => std.debug.print("{d}: B{d}.{d}: whitespace        \"{s}\"\n", .{ op_count, block_index, pc, match }),
+            OpType.word => std.debug.print("{d}: B{d}.{d}: word        \"{s}\"\n", .{ op_count, block_index, pc, match }),
             OpType.range => std.debug.print("{d}: B{d}.{d}: range({c}, {c})     \"{s}\"\n", .{ op_count, block_index, pc, self.range.a, self.range.b, match }),
             OpType.split => std.debug.print("{d}: B{d}.{d}: split({d}, {d})     \"{s}\"\n", .{ op_count, block_index, pc, self.split.a, self.split.b, match }),
             OpType.jump => std.debug.print("{d}: B{d}.{d}: jump({d})         \"{s}\"\n", .{ op_count, block_index, pc, self.jump, match }),
@@ -73,6 +76,7 @@ pub fn print_block(block: Block, index: usize) void {
             OpType.char => std.debug.print("  char({c})\n", .{instruction.char}),
             OpType.wildcard => std.debug.print("  wildcard\n", .{}),
             OpType.whitespace => std.debug.print("  whitespace\n", .{}),
+            OpType.word => std.debug.print("  word\n", .{}),
             OpType.split => std.debug.print("  split({d}, {d})\n", .{ instruction.split.a, instruction.split.b }),
             OpType.range => std.debug.print("  range({c}, {c})\n", .{ instruction.range.a, instruction.range.b }),
             OpType.jump => std.debug.print("  jump({d})\n", .{instruction.jump}),
@@ -259,11 +263,17 @@ pub const VMInstance = struct {
     fn peek_whitespace(self: *Self) bool {
         if (!self.is_end_of_input()) {
             return switch (self.input_str[self.state.index]) {
-                ' ' => true,
-                '\t' => true,
-                '\n' => true,
-                '\r' => true,
-                0x0c => true, // \f
+                ' ', '\t', '\n', '\r', 0x0c => true,
+                else => false,
+            };
+        }
+        return false;
+    }
+
+    fn peek_word(self: *Self) bool {
+        if (!self.is_end_of_input()) {
+            return switch (self.input_str[self.state.index]) {
+                '_', 'a'...'z', 'A'...'Z', '0'...'9' => true,
                 else => false,
             };
         }
@@ -272,6 +282,19 @@ pub const VMInstance = struct {
 
     fn match_whitespace(self: *Self) !bool {
         if (self.peek_whitespace()) {
+            self.state.index += 1;
+            self.state.pc += 1;
+            return true;
+        } else {
+            if (try self.unwind()) {
+                return true;
+            }
+            return false;
+        }
+    }
+
+    fn match_word(self: *Self) !bool {
+        if (self.peek_word()) {
             self.state.index += 1;
             self.state.pc += 1;
             return true;
@@ -328,6 +351,10 @@ pub const VMInstance = struct {
                     },
                     .whitespace => {
                         done = !try self.match_whitespace();
+                        continue;
+                    },
+                    .word => {
+                        done = !try self.match_word();
                         continue;
                     },
                     .end_of_input => {
@@ -391,6 +418,7 @@ pub const VMInstance = struct {
                                     .char => self.peek_char(list_item.char),
                                     .range => self.peek_range(list_item.range.a, list_item.range.b),
                                     .whitespace => self.peek_whitespace(),
+                                    .word => self.peek_word(),
                                 };
 
                                 if (is_match) {

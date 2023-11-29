@@ -262,3 +262,11 @@ test "abc" {
 test "([a-z])-" {
     try test_fully_matching_string("([a-z])-", "a-", 0, &.{"a"});
 }
+
+test "\\w" {
+    try test_non_matching_string("\\w", "!@#$%^&*()-+=`~./<>?\\|{}[]");
+}
+
+test "\\w+" {
+    try test_fully_matching_string("\\w+", "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_", 0, &.{});
+}

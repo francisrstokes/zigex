@@ -6,6 +6,7 @@ const ASTNodeType = enum {
     digit,
     wildcard,
     whitespace,
+    word,
     list,
     range,
     alternation,
@@ -29,6 +30,7 @@ pub const ASTNode = union(ASTNodeType) {
     literal: u8,
     digit: u8,
     whitespace: u8,
+    word: u8,
     list: List,
     range: Range,
     wildcard: u8,
@@ -63,6 +65,10 @@ pub const ASTNode = union(ASTNodeType) {
             .literal => {
                 indent_str(indent);
                 std.debug.print("lit({c})\n", .{self.literal});
+            },
+            .word => {
+                indent_str(indent);
+                std.debug.print("word\n", .{});
             },
             .range => {
                 indent_str(indent);
