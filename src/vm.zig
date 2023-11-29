@@ -3,16 +3,38 @@ const Allocator = std.mem.Allocator;
 
 const DebugConfig = @import("debug-config.zig").DebugConfig;
 
-pub const OpType = enum { char, wildcard, whitespace, word, range, jump, split, end, end_of_input, start_capture, end_capture, list, progress };
+pub const OpType = enum {
+    char,
+    wildcard,
+    whitespace,
+    word,
+    digit,
+    range,
+    jump,
+    split,
+    end,
+    end_of_input,
+    start_capture,
+    end_capture,
+    list,
+    progress,
+};
 
 var op_count: usize = 0;
 
-pub const ListItemType = enum { char, range, whitespace, word };
+pub const ListItemType = enum {
+    char,
+    range,
+    whitespace,
+    word,
+    digit,
+};
 pub const ListItem = union(ListItemType) {
     char: u8,
     range: struct { a: u8, b: u8 },
     whitespace: bool,
     word: bool,
+    digit: bool,
 };
 pub const ListItemLists = std.ArrayList(std.ArrayList(ListItem));
 
@@ -26,6 +48,7 @@ pub const Op = union(OpType) {
     wildcard: u8,
     whitespace: bool,
     word: bool,
+    digit: bool,
     range: Range,
 
     // Capture based
@@ -56,6 +79,13 @@ pub const Op = union(OpType) {
                     std.debug.print("{d}: B{d}.{d}: negative_word        \"{s}\"\n", .{ op_count, block_index, pc, match });
                 } else {
                     std.debug.print("{d}: B{d}.{d}: word        \"{s}\"\n", .{ op_count, block_index, pc, match });
+                }
+            },
+            OpType.digit => {
+                if (self.digit) {
+                    std.debug.print("{d}: B{d}.{d}: negative_digit        \"{s}\"\n", .{ op_count, block_index, pc, match });
+                } else {
+                    std.debug.print("{d}: B{d}.{d}: digit        \"{s}\"\n", .{ op_count, block_index, pc, match });
                 }
             },
             OpType.range => std.debug.print("{d}: B{d}.{d}: range({c}, {c})     \"{s}\"\n", .{ op_count, block_index, pc, self.range.a, self.range.b, match }),
@@ -102,6 +132,13 @@ pub fn print_block(block: Block, index: usize) void {
                     std.debug.print("  negative_word\n", .{});
                 } else {
                     std.debug.print("  word\n", .{});
+                }
+            },
+            OpType.digit => {
+                if (instruction.digit) {
+                    std.debug.print("  negative_digit\n", .{});
+                } else {
+                    std.debug.print("  digit\n", .{});
                 }
             },
             OpType.split => std.debug.print("  split({d}, {d})\n", .{ instruction.split.a, instruction.split.b }),
@@ -287,6 +324,22 @@ pub const VMInstance = struct {
         }
     }
 
+    fn peek_digit(self: *Self, negate: bool) bool {
+        if (!self.is_end_of_input()) {
+            const result = switch (self.input_str[self.state.index]) {
+                '0'...'9' => true,
+                else => false,
+            };
+
+            if (negate) {
+                return !result;
+            } else {
+                return result;
+            }
+        }
+        return false;
+    }
+
     fn peek_whitespace(self: *Self, negate: bool) bool {
         if (!self.is_end_of_input()) {
             const result = switch (self.input_str[self.state.index]) {
@@ -334,6 +387,19 @@ pub const VMInstance = struct {
 
     fn match_word(self: *Self, negate: bool) !bool {
         if (self.peek_word(negate)) {
+            self.state.index += 1;
+            self.state.pc += 1;
+            return true;
+        } else {
+            if (try self.unwind()) {
+                return true;
+            }
+            return false;
+        }
+    }
+
+    fn match_digit(self: *Self, negate: bool) !bool {
+        if (self.peek_digit(negate)) {
             self.state.index += 1;
             self.state.pc += 1;
             return true;
@@ -394,6 +460,10 @@ pub const VMInstance = struct {
                     },
                     .word => {
                         done = !try self.match_word(op.word);
+                        continue;
+                    },
+                    .digit => {
+                        done = !try self.match_digit(op.digit);
                         continue;
                     },
                     .end_of_input => {
@@ -458,6 +528,7 @@ pub const VMInstance = struct {
                                     .range => self.peek_range(list_item.range.a, list_item.range.b),
                                     .whitespace => self.peek_whitespace(list_item.whitespace),
                                     .word => self.peek_word(list_item.word),
+                                    .digit => self.peek_digit(list_item.digit),
                                 };
 
                                 if (is_match) {

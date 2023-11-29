@@ -77,7 +77,7 @@ pub const Compiler = struct {
                 return current_block_index;
             },
             .digit => {
-                try self.add_to_block(current_block_index, .{ .range = .{ .a = '0', .b = '9' } });
+                try self.add_to_block(current_block_index, .{ .digit = node.digit });
                 return current_block_index;
             },
             .whitespace => {

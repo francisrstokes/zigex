@@ -167,7 +167,8 @@ pub const Parser = struct {
             .escaped => {
                 var node: ASTNode = undefined;
                 switch (token.value) {
-                    'd' => node = ASTNode{ .digit = 0 },
+                    'd' => node = ASTNode{ .digit = false },
+                    'D' => node = ASTNode{ .digit = true },
                     's' => node = ASTNode{ .whitespace = false },
                     'S' => node = ASTNode{ .whitespace = true },
                     'w' => node = ASTNode{ .word = false },

@@ -28,7 +28,7 @@ pub const ASTNode = union(ASTNodeType) {
 
     regex: usize,
     literal: u8,
-    digit: u8,
+    digit: bool,
     whitespace: bool,
     word: bool,
     list: List,
@@ -83,7 +83,10 @@ pub const ASTNode = union(ASTNodeType) {
             },
             .digit => {
                 indent_str(indent);
-                std.debug.print("digit({c})\n", .{self.digit});
+                if (self.digit) {
+                    std.debug.print("negative_", .{});
+                }
+                std.debug.print("digit\n", .{});
             },
             .whitespace => {
                 indent_str(indent);

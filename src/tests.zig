@@ -283,3 +283,8 @@ test "\\S" {
     try test_non_matching_string("\\S", " \t\r\x0c\n");
     try test_fully_matching_string("\\S", "a", 0, &.{});
 }
+
+test "\\D" {
+    try test_non_matching_string("\\D", "0123456789");
+    try test_fully_matching_string("\\D", "a", 0, &.{});
+}
