@@ -129,16 +129,20 @@ pub const Parser = struct {
         return null;
     }
 
+    fn parse_list_element(self: *Self, node: ASTNode) !void {
+        if (try self.maybe_parse_rangenode(node)) |range_node| {
+            try self.add_to_current_nodelist(range_node);
+        } else {
+            try self.add_to_current_nodelist(node);
+        }
+    }
+
     fn parse_node(self: *Self, allocator: Allocator, token: Token) !void {
         switch (token.tok_type) {
             .literal => {
                 var node = ASTNode{ .literal = token.value };
                 if (self.current_state.in_list) {
-                    if (try self.maybe_parse_rangenode(node)) |range_node| {
-                        try self.add_to_current_nodelist(range_node);
-                    } else {
-                        try self.add_to_current_nodelist(node);
-                    }
+                    try self.parse_list_element(node);
                     return;
                 }
 
@@ -151,12 +155,7 @@ pub const Parser = struct {
             },
             .caret => {
                 if (self.current_state.in_list) {
-                    var node = ASTNode{ .literal = token.value };
-                    if (try self.maybe_parse_rangenode(node)) |range_node| {
-                        try self.add_to_current_nodelist(range_node);
-                    } else {
-                        try self.add_to_current_nodelist(node);
-                    }
+                    try self.parse_list_element(ASTNode{ .literal = token.value });
                     return;
                 }
 
@@ -166,12 +165,7 @@ pub const Parser = struct {
             },
             .dollar => {
                 if (self.current_state.in_list) {
-                    var node = ASTNode{ .literal = token.value };
-                    if (try self.maybe_parse_rangenode(node)) |range_node| {
-                        try self.add_to_current_nodelist(range_node);
-                    } else {
-                        try self.add_to_current_nodelist(node);
-                    }
+                    try self.parse_list_element(ASTNode{ .literal = token.value });
                     return;
                 }
 
@@ -198,15 +192,6 @@ pub const Parser = struct {
                     else => node = ASTNode{ .literal = token.value },
                 }
 
-                if (self.current_state.in_list) {
-                    if (try self.maybe_parse_rangenode(node)) |range_node| {
-                        try self.add_to_current_nodelist(range_node);
-                    } else {
-                        try self.add_to_current_nodelist(node);
-                    }
-                    return;
-                }
-
                 if (try self.maybe_parse_and_wrap_quantifier(node)) |quantifier_node| {
                     try self.add_to_current_nodelist(quantifier_node);
                 } else {
@@ -216,12 +201,7 @@ pub const Parser = struct {
             },
             .wildcard => {
                 if (self.current_state.in_list) {
-                    var node = ASTNode{ .literal = token.value };
-                    if (try self.maybe_parse_rangenode(node)) |range_node| {
-                        try self.add_to_current_nodelist(range_node);
-                    } else {
-                        try self.add_to_current_nodelist(node);
-                    }
+                    try self.parse_list_element(ASTNode{ .literal = token.value });
                     return;
                 }
 
@@ -235,12 +215,7 @@ pub const Parser = struct {
             },
             .lsquare => {
                 if (self.current_state.in_list) {
-                    var node = ASTNode{ .literal = token.value };
-                    if (try self.maybe_parse_rangenode(node)) |range_node| {
-                        try self.add_to_current_nodelist(range_node);
-                    } else {
-                        try self.add_to_current_nodelist(node);
-                    }
+                    try self.parse_list_element(ASTNode{ .literal = token.value });
                     return;
                 }
 
@@ -276,12 +251,7 @@ pub const Parser = struct {
             },
             .lparen => {
                 if (self.current_state.in_list) {
-                    var node = ASTNode{ .literal = token.value };
-                    if (try self.maybe_parse_rangenode(node)) |range_node| {
-                        try self.add_to_current_nodelist(range_node);
-                    } else {
-                        try self.add_to_current_nodelist(node);
-                    }
+                    try self.parse_list_element(ASTNode{ .literal = token.value });
                     return;
                 }
 
@@ -295,12 +265,7 @@ pub const Parser = struct {
             },
             .rparen => {
                 if (self.current_state.in_list) {
-                    var node = ASTNode{ .literal = token.value };
-                    if (try self.maybe_parse_rangenode(node)) |range_node| {
-                        try self.add_to_current_nodelist(range_node);
-                    } else {
-                        try self.add_to_current_nodelist(node);
-                    }
+                    try self.parse_list_element(ASTNode{ .literal = token.value });
                     return;
                 }
 
@@ -320,12 +285,7 @@ pub const Parser = struct {
             },
             .alternation => {
                 if (self.current_state.in_list) {
-                    var node = ASTNode{ .literal = token.value };
-                    if (try self.maybe_parse_rangenode(node)) |range_node| {
-                        try self.add_to_current_nodelist(range_node);
-                    } else {
-                        try self.add_to_current_nodelist(node);
-                    }
+                    try self.parse_list_element(ASTNode{ .literal = token.value });
                     return;
                 }
 
@@ -356,11 +316,7 @@ pub const Parser = struct {
             else => {
                 var node = ASTNode{ .literal = token.value };
                 if (self.current_state.in_list) {
-                    if (try self.maybe_parse_rangenode(node)) |range_node| {
-                        try self.add_to_current_nodelist(range_node);
-                    } else {
-                        try self.add_to_current_nodelist(node);
-                    }
+                    try self.parse_list_element(node);
                     return;
                 }
 
