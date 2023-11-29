@@ -13,6 +13,7 @@ pub const OpType = enum {
     jump,
     split,
     end,
+    start_of_input,
     end_of_input,
     start_capture,
     end_capture,
@@ -60,6 +61,7 @@ pub const Op = union(OpType) {
     split: Split,
     end: u8,
     progress: usize,
+    start_of_input: u8,
     end_of_input: u8,
     list: List,
 
@@ -102,6 +104,7 @@ pub const Op = union(OpType) {
             OpType.progress => std.debug.print("{d}: B{d}.{d}: progress({d})  \"{s}\"\n", .{ op_count, block_index, pc, self.progress, match }),
             OpType.end_capture => std.debug.print("{d}: B{d}.{d}: end_capture({d})  \"{s}\"\n", .{ op_count, block_index, pc, self.end_capture, match }),
             OpType.end => std.debug.print("{d}: B{d}.{d}: end             \"{s}\"\n", .{ op_count, block_index, pc, match }),
+            OpType.start_of_input => std.debug.print("{d}: B{d}.{d}: start_of_input    \"{s}\"\n", .{ op_count, block_index, pc, match }),
             OpType.end_of_input => std.debug.print("{d}: B{d}.{d}: end_of_input    \"{s}\"\n", .{ op_count, block_index, pc, match }),
         }
         op_count += 1;
@@ -153,6 +156,7 @@ pub fn print_block(block: Block, index: usize) void {
             },
             OpType.progress => std.debug.print("  progress({d})\n", .{instruction.progress}),
             OpType.end => std.debug.print("  end\n", .{}),
+            OpType.start_of_input => std.debug.print("  start_of_input\n", .{}),
             OpType.end_of_input => std.debug.print("  end_of_input\n", .{}),
             OpType.start_capture => std.debug.print("  start_capture({d})\n", .{instruction.start_capture}),
             OpType.end_capture => std.debug.print("  end_capture({d})\n", .{instruction.end_capture}),
@@ -249,6 +253,10 @@ pub const VMInstance = struct {
 
     fn is_end_of_input(self: *Self) bool {
         return self.state.index >= self.input_str.len;
+    }
+
+    fn is_start_of_input(self: *Self) bool {
+        return self.state.index == 0;
     }
 
     fn push_state(self: *Self) void {
@@ -411,6 +419,18 @@ pub const VMInstance = struct {
         }
     }
 
+    fn match_start_of_input(self: *Self) !bool {
+        if (self.is_start_of_input()) {
+            self.state.pc += 1;
+            return true;
+        } else {
+            if (try self.unwind()) {
+                return true;
+            }
+            return false;
+        }
+    }
+
     fn match_end_of_input(self: *Self) !bool {
         if (self.is_end_of_input()) {
             self.state.pc += 1;
@@ -464,6 +484,10 @@ pub const VMInstance = struct {
                     },
                     .digit => {
                         done = !try self.match_digit(op.digit);
+                        continue;
+                    },
+                    .start_of_input => {
+                        done = !try self.match_start_of_input();
                         continue;
                     },
                     .end_of_input => {

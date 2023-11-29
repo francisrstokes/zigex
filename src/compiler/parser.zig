@@ -149,6 +149,21 @@ pub const Parser = struct {
                 }
                 return;
             },
+            .caret => {
+                if (self.current_state.in_list) {
+                    var node = ASTNode{ .literal = token.value };
+                    if (try self.maybe_parse_rangenode(node)) |range_node| {
+                        try self.add_to_current_nodelist(range_node);
+                    } else {
+                        try self.add_to_current_nodelist(node);
+                    }
+                    return;
+                }
+
+                var node = ASTNode{ .start_of_input = 0 };
+                try self.add_to_current_nodelist(node);
+                return;
+            },
             .dollar => {
                 if (self.current_state.in_list) {
                     var node = ASTNode{ .literal = token.value };

@@ -288,3 +288,10 @@ test "\\D" {
     try test_non_matching_string("\\D", "0123456789");
     try test_fully_matching_string("\\D", "a", 0, &.{});
 }
+
+test "^a|^x" {
+    try test_non_matching_string("^a|^x", "     a");
+    try test_non_matching_string("^a|^x", "     x");
+    try test_fully_matching_string("^a|^x", "a", 0, &.{});
+    try test_fully_matching_string("^a|^x", "x", 0, &.{});
+}
