@@ -90,8 +90,10 @@ pub const Regex = struct {
             return null;
         }
 
+        var groups = if (vm_instance.state.captures_copied) vm_instance.state.captures else vm_instance.stack.items[vm_instance.stack.items.len - 1].captures;
+
         const match_string = StringMatch{ .index = vm_instance.match_from_index, .value = vm_instance.get_match() };
-        return MatchObject{ .num_groups = vm_instance.num_groups, .groups = vm_instance.state.captures.move(), .match = match_string };
+        return MatchObject{ .num_groups = vm_instance.num_groups, .groups = try groups.clone(), .match = match_string };
     }
 
     pub fn deinit(self: *Self) void {

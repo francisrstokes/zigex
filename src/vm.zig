@@ -105,7 +105,9 @@ const ThreadState = struct {
     pc: usize,
     index: usize,
     next_split: ?usize,
+    capture_stack_copied: bool = false,
     capture_stack: std.ArrayList(usize),
+    captures_copied: bool = false,
     captures: std.AutoHashMap(usize, StringMatch),
 
     pub fn clone(self: *Self) !ThreadState {
@@ -114,14 +116,21 @@ const ThreadState = struct {
             .pc = self.pc,
             .index = self.index,
             .next_split = self.next_split,
-            .capture_stack = try self.capture_stack.clone(),
-            .captures = try self.captures.clone(),
+            .capture_stack = self.capture_stack,
+            .captures = self.captures,
+            .captures_copied = self.captures_copied,
+            .capture_stack_copied = self.capture_stack_copied,
         };
     }
 
     pub fn deinit(self: *Self) void {
-        self.capture_stack.deinit();
-        self.captures.deinit();
+        if (self.capture_stack_copied) {
+            self.capture_stack.deinit();
+        }
+
+        if (self.captures_copied) {
+            self.captures.deinit();
+        }
     }
 };
 
@@ -143,7 +152,7 @@ pub const VMInstance = struct {
     pub fn init(allocator: Allocator, blocks: *std.ArrayList(Block), lists: *ListItemLists, input_str: []const u8, config: DebugConfig) Self {
         return .{
             .blocks = blocks,
-            .state = .{ .block_index = 0, .pc = 0, .index = 0, .next_split = null, .captures = std.AutoHashMap(usize, StringMatch).init(allocator), .capture_stack = std.ArrayList(usize).init(allocator) },
+            .state = .{ .block_index = 0, .pc = 0, .index = 0, .next_split = null, .captures = std.AutoHashMap(usize, StringMatch).init(allocator), .capture_stack = std.ArrayList(usize).init(allocator), .captures_copied = true, .capture_stack_copied = true },
             .stack = std.ArrayList(ThreadState).init(allocator),
             .input_str = input_str,
             .allocator = allocator,
@@ -191,8 +200,16 @@ pub const VMInstance = struct {
         if (self.stack.items.len == 0) {
             if (self.match_from_index < self.input_str.len) {
                 self.match_from_index += 1;
-                self.state.deinit();
-                self.state = .{ .block_index = 0, .pc = 0, .index = self.match_from_index, .next_split = null, .captures = std.AutoHashMap(usize, StringMatch).init(self.allocator), .capture_stack = std.ArrayList(usize).init(self.allocator) };
+
+                self.state.block_index = 0;
+                self.state.pc = 0;
+                self.state.index = self.match_from_index;
+                self.state.next_split = null;
+                self.state.captures.clearRetainingCapacity();
+                self.state.capture_stack.clearRetainingCapacity();
+                self.state.captures_copied = true;
+                self.state.capture_stack_copied = true;
+
                 self.log("  <~~ Restart matching from index {d}\n", .{self.match_from_index});
                 return true;
             }
@@ -210,11 +227,20 @@ pub const VMInstance = struct {
             self.state.index = self.stack.items[self.stack.items.len - 1].index;
 
             // Copy the parents captures and capture_stack to this state
-            self.state.captures.deinit();
-            self.state.captures = try self.stack.items[self.stack.items.len - 1].captures.clone();
+            if (self.state.captures_copied) {
+                self.state.captures.clearRetainingCapacity();
+                var it = self.stack.items[self.stack.items.len - 1].captures.iterator();
+                while (it.next()) |entry| {
+                    try self.state.captures.put(entry.key_ptr.*, entry.value_ptr.*);
+                }
+            }
 
-            self.state.capture_stack.deinit();
-            self.state.capture_stack = try self.stack.items[self.stack.items.len - 1].capture_stack.clone();
+            if (self.state.capture_stack_copied) {
+                self.state.capture_stack.clearRetainingCapacity();
+                for (self.stack.items[self.stack.items.len - 1].capture_stack.items) |*state| {
+                    try self.state.capture_stack.append(state.*);
+                }
+            }
 
             return true;
         }
@@ -225,6 +251,30 @@ pub const VMInstance = struct {
         self.log("  <-- block {d}\n", .{self.state.block_index});
 
         return true;
+    }
+
+    fn find_copiable_capture_stack(self: *Self) usize {
+        var i: usize = self.stack.items.len - 1;
+        while (true) : (i -= 1) {
+            if (self.stack.items[i].capture_stack_copied) {
+                return i;
+            }
+            if (i == 0) {
+                return 0;
+            }
+        }
+    }
+
+    fn find_copiable_captures(self: *Self) usize {
+        var i: usize = self.stack.items.len - 1;
+        while (true) : (i -= 1) {
+            if (self.stack.items[i].captures_copied) {
+                return i;
+            }
+            if (i == 0) {
+                return 0;
+            }
+        }
     }
 
     fn peek_range(self: *Self, a: u8, b: u8) bool {
@@ -359,6 +409,8 @@ pub const VMInstance = struct {
                         self.state.pc += 1;
                         try self.stack.append(try self.state.clone());
 
+                        self.state.captures_copied = false;
+                        self.state.capture_stack_copied = false;
                         self.state.next_split = op.split.b;
                         self.state.block_index = op.split.a;
                         self.state.pc = 0;
@@ -371,13 +423,28 @@ pub const VMInstance = struct {
                     },
                     .start_capture => {
                         self.update_group_count(op.start_capture);
+                        if (!self.state.capture_stack_copied) {
+                            self.state.capture_stack_copied = true;
+                            self.state.capture_stack = try self.stack.items[self.find_copiable_capture_stack()].capture_stack.clone();
+                        }
                         try self.state.capture_stack.append(self.state.index);
                         self.state.pc += 1;
                         continue;
                     },
                     .end_capture => {
+                        if (!self.state.capture_stack_copied) {
+                            self.state.capture_stack_copied = true;
+                            self.state.capture_stack = try self.stack.items[self.find_copiable_capture_stack()].capture_stack.clone();
+                        }
+
                         const start = self.state.capture_stack.pop();
                         const end = self.state.index;
+
+                        if (!self.state.captures_copied) {
+                            self.state.captures_copied = true;
+                            self.state.captures = try self.stack.items[self.find_copiable_captures()].captures.clone();
+                        }
+
                         try self.state.captures.put(op.end_capture, .{ .index = start, .value = self.input_str[start..end] });
                         self.state.pc += 1;
                         continue;
