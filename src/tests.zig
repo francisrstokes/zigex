@@ -262,3 +262,29 @@ test "abc" {
 test "([a-z])-" {
     try test_fully_matching_string("([a-z])-", "a-", 0, &.{"a"});
 }
+
+test "\\w" {
+    try test_non_matching_string("\\w", "!@#$%^&*()-+=`~./<>?\\|{}[]");
+}
+
+test "\\w+" {
+    try test_fully_matching_string("\\w+", "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_", 0, &.{});
+}
+
+test "\\W+" {
+    try test_fully_matching_string("\\W+", "!@#$%^&*()-+=`~./<>?\\|{}[]", 0, &.{});
+}
+
+test "\\W" {
+    try test_non_matching_string("\\W", "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_");
+}
+
+test "\\S" {
+    try test_non_matching_string("\\S", " \t\r\x0c\n");
+    try test_fully_matching_string("\\S", "a", 0, &.{});
+}
+
+test "\\D" {
+    try test_non_matching_string("\\D", "0123456789");
+    try test_fully_matching_string("\\D", "a", 0, &.{});
+}

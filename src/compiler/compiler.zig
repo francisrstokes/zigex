@@ -6,7 +6,7 @@ const ListItem = vm.ListItem;
 const ListItemLists = vm.ListItemLists;
 
 const parser = @import("parser.zig");
-const ASTNode = @import("common.zig").ASTNode;
+const ASTNode = @import("ast.zig").ASTNode;
 const ParsedRegex = parser.ParsedRegex;
 
 pub fn blocks_deinit(blocks: std.ArrayList(vm.Block)) void {
@@ -77,11 +77,15 @@ pub const Compiler = struct {
                 return current_block_index;
             },
             .digit => {
-                try self.add_to_block(current_block_index, .{ .range = .{ .a = '0', .b = '9' } });
+                try self.add_to_block(current_block_index, .{ .digit = node.digit });
                 return current_block_index;
             },
             .whitespace => {
-                try self.add_to_block(current_block_index, .{ .whitespace = 0 });
+                try self.add_to_block(current_block_index, .{ .whitespace = node.whitespace });
+                return current_block_index;
+            },
+            .word => {
+                try self.add_to_block(current_block_index, .{ .word = node.word });
                 return current_block_index;
             },
             .wildcard => {
@@ -140,7 +144,10 @@ pub const Compiler = struct {
                             try self.lists.items[list_index].append(.{ .range = .{ .a = '0', .b = '9' } });
                         },
                         .whitespace => {
-                            try self.lists.items[list_index].append(.{ .whitespace = 0 });
+                            try self.lists.items[list_index].append(.{ .whitespace = child.whitespace });
+                        },
+                        .word => {
+                            try self.lists.items[list_index].append(.{ .word = child.word });
                         },
                         .range => {
                             try self.lists.items[list_index].append(.{ .range = .{ .a = child.range.a, .b = child.range.b } });
@@ -149,7 +156,7 @@ pub const Compiler = struct {
                     }
                 }
 
-                try self.add_to_block(current_block_index, .{ .list = .{ .items = list_index, .negate = content.negative } });
+                try self.add_to_block(current_block_index, .{ .list = .{ .items = list_index, .negate = content.negate } });
                 try self.add_to_block(current_block_index, .{ .jump = next_block_index });
 
                 return next_block_index;
