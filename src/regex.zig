@@ -57,6 +57,11 @@ pub const Regex = struct {
         var arena_allocator = arena.allocator();
 
         var token_stream = try Tokeniser.tokenise(arena_allocator, regular_expression);
+        if (debug_config.dump_tokens) {
+            std.debug.print("\n------------ Tokens ------------\n", .{});
+            token_stream.print();
+        }
+
         var parsed = try Parser.parse(arena_allocator, &token_stream);
         if (debug_config.dump_ast) {
             std.debug.print("\n------------- AST -------------\n", .{});
@@ -92,6 +97,12 @@ pub const Regex = struct {
 
         const match_string = StringMatch{ .index = vm_instance.match_from_index, .value = vm_instance.get_match() };
         return MatchObject{ .num_groups = vm_instance.num_groups, .groups = vm_instance.state.captures.move(), .match = match_string };
+    }
+
+    pub fn test_string(self: *Self, input: []const u8) !bool {
+        var vm_instance = VMInstance.init(self.allocator, &self.vm_blocks, &self.vm_lists, input, self.debug_config);
+        defer vm_instance.deinit();
+        return try vm_instance.run();
     }
 
     pub fn deinit(self: *Self) void {

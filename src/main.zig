@@ -23,7 +23,7 @@ pub fn main() !void {
     const re_str = args[1];
     const input = args[2];
 
-    const debug_config = DebugConfig{ .dump_ast = true, .dump_blocks = true, .log_execution = true };
+    const debug_config = DebugConfig{ .dump_tokens = true, .dump_ast = true, .dump_blocks = true, .log_execution = true };
     var re = try Regex.init(allocator, re_str, debug_config);
     defer re.deinit();
 

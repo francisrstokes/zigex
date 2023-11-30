@@ -35,7 +35,13 @@ const ParseState = struct {
     nodes: usize,
 };
 
-const RegexError = error{ParseError};
+const RegexError = error{
+    ParseError,
+    UnmatchedGroupError,
+    UnmatchedListError,
+    EmptyListError,
+    InvalidRangeError,
+};
 
 fn to_quantifier_node(token: Token, greedy: bool, child_index: usize) !ASTNode {
     switch (token.tok_type) {
@@ -92,8 +98,7 @@ pub const Parser = struct {
                         const range_token = try self.tokens.consume();
 
                         if (range_token.value < node.literal) {
-                            std.debug.print("Invalid range: {c} to {c}\n", .{ node.literal, range_token.value });
-                            return error.ParseError;
+                            return error.InvalidRangeError;
                         }
 
                         return ASTNode{ .range = .{ .a = node.literal, .b = range_token.value } };
@@ -240,6 +245,15 @@ pub const Parser = struct {
             },
             .rsquare => {
                 var node = ASTNode{ .list = .{ .nodes = self.current_state.nodes, .negate = self.current_state.is_negative } };
+
+                if (self.state_stack.items.len < 1 or !self.current_state.in_list) {
+                    return RegexError.UnmatchedListError;
+                }
+
+                if (self.node_lists.items[self.current_state.nodes].items.len < 1) {
+                    return RegexError.EmptyListError;
+                }
+
                 self.current_state.* = self.state_stack.pop();
 
                 if (try self.maybe_parse_and_wrap_quantifier(node)) |quantifier_node| {
@@ -267,6 +281,10 @@ pub const Parser = struct {
                 if (self.current_state.in_list) {
                     try self.parse_list_element(ASTNode{ .literal = token.value });
                     return;
+                }
+
+                if (self.state_stack.items.len < 1) {
+                    return RegexError.UnmatchedGroupError;
                 }
 
                 const copy_index = if (self.current_state.in_alternation) self.current_state.alternation_index else self.current_state.nodes;
@@ -358,6 +376,10 @@ pub const Parser = struct {
         while (tokens.available() > 0) {
             const token = try tokens.consume();
             try self.parse_node(allocator, token);
+        }
+
+        if (self.current_state.in_list) {
+            return RegexError.UnmatchedListError;
         }
 
         return ParsedRegex{ .ast = root_node, .orphan_nodes = orphan_nodes, .node_lists = node_lists };
