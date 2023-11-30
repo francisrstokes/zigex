@@ -130,10 +130,6 @@ pub const Compiler = struct {
             .list => {
                 const content = node.list;
 
-                if (parsed.node_lists.items[content.nodes].items.len == 0) {
-                    @panic("Can't generate blocks for empty list, fix in parser");
-                }
-
                 const next_block_index = try self.create_block();
 
                 try self.lists.append(std.ArrayList(ListItem).init(self.allocator));
