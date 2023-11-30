@@ -1,7 +1,22 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 
-pub const TokenType = enum { literal, escaped, wildcard, lparen, rparen, alternation, zero_or_one, zero_or_more, one_or_more, lsquare, rsquare, dollar, caret, dash };
+pub const TokenType = enum {
+    literal,
+    escaped,
+    wildcard,
+    lparen,
+    rparen,
+    alternation,
+    zero_or_one,
+    zero_or_more,
+    one_or_more,
+    lsquare,
+    rsquare,
+    dollar,
+    caret,
+    dash,
+};
 
 pub const Token = struct {
     tok_type: TokenType,
@@ -13,6 +28,25 @@ pub const Token = struct {
 
     pub fn can_be_range_literal(self: Token) bool {
         return self.tok_type != TokenType.rsquare;
+    }
+
+    pub fn print(self: *@This()) void {
+        switch (self.tok_type) {
+            .literal => std.debug.print("literal({c})\n", .{self.value}),
+            .escaped => std.debug.print("escaped({c})\n", .{self.value}),
+            .wildcard => std.debug.print("wildcard\n", .{}),
+            .lparen => std.debug.print("lparen\n", .{}),
+            .rparen => std.debug.print("rparen\n", .{}),
+            .alternation => std.debug.print("alternation\n", .{}),
+            .zero_or_one => std.debug.print("zero_or_one\n", .{}),
+            .zero_or_more => std.debug.print("zero_or_more\n", .{}),
+            .one_or_more => std.debug.print("one_or_more\n", .{}),
+            .lsquare => std.debug.print("lsquare\n", .{}),
+            .rsquare => std.debug.print("rsquare\n", .{}),
+            .dollar => std.debug.print("dollar\n", .{}),
+            .caret => std.debug.print("caret\n", .{}),
+            .dash => std.debug.print("dash\n", .{}),
+        }
     }
 };
 
@@ -52,6 +86,12 @@ pub const TokenStream = struct {
 
     pub fn deinit(self: *Self) void {
         self.tokens.deinit();
+    }
+
+    pub fn print(self: *Self) void {
+        for (self.tokens.items) |*token| {
+            token.print();
+        }
     }
 };
 
